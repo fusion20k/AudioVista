@@ -111,7 +111,7 @@ def main():
     pump(app, 0.4)
     shot(app, "10_queue")
     app.open_modal(SaveDialog(app, studio, after_save=studio.refresh_saved))
-    app.modals[-1].input.set_text("Sunset Embers")
+    app.modals[-1].input.set_text("Sunset Particles")
     pump(app, 0.3)
     shot(app, "11_save_dialog")
     app.modals[-1].save()

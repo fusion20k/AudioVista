@@ -14,7 +14,7 @@ panels, a warm sunset-coral accent and soft sunset skies behind the visualizers.
 
 Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 
-![Studio – Equalizer visualizer at sunset](docs/screenshots/05_studio_bars.png)
+![Studio – Spectrum visualizer at sunset](docs/screenshots/05_studio_bars.png)
 
 ## Features
 
@@ -22,9 +22,9 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | --- | --- |
 | Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
 | Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
-| Readable soundwave: the real waveform printed on the tape of the Tape Deck style, plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.envelope_buckets` |
+| Readable soundwave: the Waveform style scrolls the real waveform past a playhead (played part bright, upcoming part faint), plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.envelope_buckets` |
 | Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
-| Five hi-fi styles with lots of moving parts: Equalizer (LED spectrum analyzer), Tape Deck (reel-to-reel with the waveform on the tape), Turntable, VU Meters (analog needles on a gear train), Embers (sparks over a striped sunset) | `visuals/renderers.py` |
+| Five modern styles: Spectrum (mirrored bars with falling peak caps and a reflection), Waveform (scrolling waveform over flowing bass/mid/treble waves), Radial (spectrum ring around a pulsing core, shockwaves on beats), Rings (bass/mid/treble arc gauges with spinning dash rings), Particles (hundreds of particles swirling with the music) | `visuals/renderers.py` |
 | Settings: primary/accent colour, sky background (Golden, Sunset, Dawn, Twilight, Night), sensitivity, smoothing, glow, title, haze (soft vignette and warm glow) | `VisualSettings`, studio right panel |
 | Play / pause, seek, volume, previous / next | `AudioPlayer`, studio transport bar |
 | Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |
@@ -108,7 +108,7 @@ audiovista/
     player.py        AudioPlayer – pygame.mixer playback with an accurate clock
     demo.py          synthesised demo track
   visuals/
-    renderers.py     Equalizer, Tape Deck, Turntable, VU Meters, Embers
+    renderers.py     Spectrum, Waveform, Radial, Rings, Particles
     backgrounds.py   sky gradients (dithered, no banding) + beat flash
     retro.py         "Haze": soft vignette and warm glow
     engine.py        VisualizerEngine – live preview and export frames, bloom

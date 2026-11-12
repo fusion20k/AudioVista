@@ -75,7 +75,8 @@ class TestPlaybackQueue:
 @pytest.fixture(scope="module")
 def analyzer():
     t = np.arange(44100 * 2) / 44100
-    return AudioAnalyzer((0.5 * np.sin(2 * np.pi * 220 * t)).astype(np.float32))
+    pulse = 0.55 + 0.45 * np.sin(2 * np.pi * 2 * t)          # a tone that swells twice a second
+    return AudioAnalyzer((0.5 * pulse * np.sin(2 * np.pi * 220 * t)).astype(np.float32))
 
 
 @pytest.mark.parametrize("style", WAVE_TYPES)

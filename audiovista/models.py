@@ -132,10 +132,10 @@ class AudioFile:
 # --------------------------------------------------------------- VisualSettings
 
 # Style keys are stored in saved visualizations, so they stay stable even
-# though the styles have been redesigned (e.g. "waveform" is the tape deck).
+# though the styles have been redesigned (they map to the current designs).
 WAVE_TYPES = ("bars", "waveform", "circular", "meters", "particles")
-WAVE_TYPE_LABELS = {"bars": "Equalizer", "waveform": "Tape Deck", "circular": "Turntable",
-                    "meters": "VU Meters", "particles": "Embers"}
+WAVE_TYPE_LABELS = {"bars": "Spectrum", "waveform": "Waveform", "circular": "Radial",
+                    "meters": "Rings", "particles": "Particles"}
 # Backgrounds are skies at different times of day.
 BACKGROUNDS = ("golden", "sunset", "dawn", "twilight", "night")
 BACKGROUND_LABELS = {"golden": "Golden", "sunset": "Sunset", "dawn": "Dawn",
