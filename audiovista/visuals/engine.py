@@ -1,8 +1,8 @@
 """The "Audio Visualizer Generation System" from the use-case diagram.
 
-Combines the FFT analysis of a track with a renderer style, a background
-and optional glow to produce finished frames - both for the live preview and
-for video export.
+Combines the FFT analysis of a track with a scene renderer, soft light (bloom,
+sun haze, god rays) and an atmospheric vignette to produce finished frames -
+both for the live preview and for video export.
 """
 
 from __future__ import annotations
@@ -13,20 +13,20 @@ import pygame
 
 from ..audio.analyzer import AudioAnalyzer
 from ..models import VisualSettings
-from . import retro
-from .backgrounds import draw_background
 from .renderers import create_renderer
+from .scenery import vignette
 
 _font_cache: dict = {}
 
+LIGHT_SCALE = 4   # the light surface is 1/4 of the frame size
 
-def _font(size: int, bold: bool = False) -> pygame.font.Font:
-    key = (size, bold)
-    if key not in _font_cache:
+
+def _font(size: int) -> pygame.font.Font:
+    if size not in _font_cache:
         if not pygame.font.get_init():
             pygame.font.init()
-        _font_cache[key] = pygame.font.SysFont("georgia,segoeui,arial", size, bold=bold)
-    return _font_cache[key]
+        _font_cache[size] = pygame.font.SysFont("segoeuisemibold,segoeui,arial", size)
+    return _font_cache[size]
 
 
 class VisualizerEngine:
@@ -37,7 +37,10 @@ class VisualizerEngine:
         self.renderer = create_renderer(settings.wave_type)
         self.renderer.analyzer = analyzer
         self.renderer.title = title
-        self._layer: pygame.Surface | None = None
+        self._light: pygame.Surface | None = None
+        self._half: pygame.Surface | None = None
+        self._full: pygame.Surface | None = None
+        self._title_img = None
 
     def set_settings(self, settings: VisualSettings) -> None:
         if settings.wave_type != self.settings.wave_type:
@@ -51,49 +54,54 @@ class VisualizerEngine:
 
     def render(self, target: pygame.Surface, t: float, dt: float) -> None:
         """Draw the visualization for playback time *t* onto *target*."""
-        size = target.get_size()
-        if size[0] < 8 or size[1] < 8:
+        w, h = target.get_size()
+        if w < 8 or h < 8:
             return
         frame = self.analyzer.frame_at(t)
         s = self.settings
-        draw_background(target, s.background, s.primary_rgb, frame.beat)
-        self.renderer.draw_backdrop(target, frame, s, max(1e-4, min(dt, 0.1)))
+        dt = max(1e-4, min(dt, 0.1))
 
-        if self._layer is None or self._layer.get_size() != size:
-            self._layer = pygame.Surface(size, pygame.SRCALPHA)
-        layer = self._layer
-        layer.fill((0, 0, 0, 0))
-        self.renderer.draw(layer, frame, s, max(1e-3, min(dt, 0.1)))
+        light = None
+        if s.glow or s.atmosphere:
+            size = (max(2, w // LIGHT_SCALE), max(2, h // LIGHT_SCALE))
+            if self._light is None or self._light.get_size() != size:
+                self._light = pygame.Surface(size)
+            light = self._light
+            light.fill((0, 0, 0))
+        k = light.get_width() / w if light is not None else 0.25
 
-        if s.glow:
-            # Bloom: shrink the layer a lot (cheap), blur it by smooth-scaling the
-            # tiny copy up to half size, then stretch that to full size. The
-            # result is so soft that the final cheap stretch is invisible.
-            # Small blur pyramid: shrink, then grow back in 2x steps so the glow
-            # stays round and smooth (one big upscale looks blocky).
-            w, h = size
-            img = pygame.transform.scale(layer, (max(1, w // 4), max(1, h // 4)))
-            for div in (8, 16):
-                img = pygame.transform.smoothscale(img, (max(1, w // div), max(1, h // div)))
-            for div in (8, 4, 2):
-                img = pygame.transform.smoothscale(img, (max(1, w // div), max(1, h // div)))
-            blur = pygame.transform.scale(img, size)
-            target.blit(blur, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
-        target.blit(layer, (0, 0))
+        self.renderer.draw(target, light, k, frame, s, dt)
 
-        if s.vintage:
-            retro.apply(target, t)
+        if light is not None:
+            # Light was drawn at 1/4 size: a smooth 2x step blurs it, a cheap 2x
+            # step brings it to full size (it is so soft the second step is
+            # invisible), then it is added on top of the scene. The buffers are
+            # reused - allocating big surfaces every frame is slower than scaling.
+            half_size = (max(1, w // 2), max(1, h // 2))
+            if self._half is None or self._half.get_size() != half_size:
+                self._half = pygame.Surface(half_size)
+                self._full = pygame.Surface((w, h))
+            pygame.transform.smoothscale(light, half_size, self._half)
+            pygame.transform.scale(self._half, (w, h), self._full)
+            target.blit(self._full, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        if s.atmosphere:
+            vignette(target)
         if s.show_title and self.title:
             self._draw_title(target)
 
     def _draw_title(self, target: pygame.Surface) -> None:
         w, h = target.get_size()
-        size = max(12, int(min(w, h) * 0.035))
-        text = _font(size, bold=True).render(self.title, True, (246, 234, 212))
-        shadow = _font(size, bold=True).render(self.title, True, (0, 0, 0))
-        shadow.set_alpha(140)
-        x, y = int(w * 0.04), int(h - h * 0.05 - text.get_height())
-        target.blit(shadow, (x + 2, y + 2))
+        size = max(12, int(min(w, h) * 0.034))
+        key = (self.title, size)
+        if self._title_img is None or self._title_img[0] != key:
+            f = _font(size)
+            text = f.render(self.title, True, (250, 246, 238))
+            shadow = f.render(self.title, True, (10, 12, 30))
+            shadow.set_alpha(120)
+            self._title_img = (key, text, shadow)
+        _, text, shadow = self._title_img
+        x, y = int(w * 0.04), int(h - h * 0.055 - text.get_height())
+        target.blit(shadow, (x + max(1, size // 18), y + max(1, size // 18)))
         target.blit(text, (x, y))
 
     def frames(self, resolution: tuple[int, int], fps: int = 30, start: float = 0.0,

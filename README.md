@@ -9,9 +9,13 @@ file, pick a visualizer style, colours and background, preview it live while the
 song plays, save it to your library and export it as an MP4 video for social
 media or YouTube. No video-editing skills required.
 
+The look is meant to feel nostalgic in a calm, dreamy way: soft sunset skies,
+layered hills fading into haze, light rays, still lakes and fireflies, all
+moving with the music.
+
 Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 
-![Studio – turntable visualizer](docs/screenshots/07_studio_circular.png)
+![Studio – Mountains visualizer at sunset](docs/screenshots/05_studio_bars.png)
 
 ## Features
 
@@ -19,10 +23,10 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | --- | --- |
 | Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
 | Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
-| Readable soundwave: the real waveform printed on the tape of the Tape Deck style, plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.envelope_buckets` |
+| Readable soundwave: the real waveform drifts across the sky in the Lakeside style (played part bright, upcoming part faint) and is mirrored in the lake, plus a waveform overview on the seek bar | `LakesideRenderer`, `AudioAnalyzer.envelope_buckets` |
 | Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
-| Five vintage hi-fi styles with lots of moving parts: Equalizer (LED spectrum analyzer), Tape Deck (reel-to-reel with the waveform on the tape), Turntable, VU Meters (analog needles on a gear train), Embers | `visuals/renderers.py` |
-| Settings: primary/accent colour, warm backgrounds, sensitivity, smoothing, glow, title, retro film look (grain, vignette) | `VisualSettings`, studio right panel |
+| Five living-landscape styles with lots of moving parts: **Mountains** (the front range is the spectrum, with falling peak stars), **Lakeside** (waveform ribbon + rippling reflection, rings on beats), **Starlight** (radial spectrum around the moon, orbiting lights, aurora, shooting stars), **Windmills** (sails driven by bass/mid/treble, the sun crosses the sky over the song), **Fireflies** (grass height follows the spectrum, fireflies wake with the treble) | `visuals/renderers.py`, `visuals/scenery.py` |
+| Settings: primary/accent colour, time of day (Golden hour, Sunset, Dawn, Twilight, Night), sensitivity, smoothing, glow, title, haze (god rays, fog, floating motes, soft vignette) | `VisualSettings`, studio right panel |
 | Play / pause, seek, volume, previous / next | `AudioPlayer`, studio transport bar |
 | Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |
 | Save result to *My Library*, reopen and delete later | `ResultController`, studio *Saved* tab |
@@ -105,9 +109,9 @@ audiovista/
     player.py        AudioPlayer – pygame.mixer playback with an accurate clock
     demo.py          synthesised demo track
   visuals/
-    renderers.py     Bars, Waveform, Radial, Particles
-    backgrounds.py   gradient backgrounds + beat flash
-    engine.py        VisualizerEngine – live preview and export frames
+    renderers.py     Mountains, Lakeside, Starlight, Windmills, Fireflies
+    scenery.py       skies, terrain, clouds, water, god rays, fireflies (cached, fast)
+    engine.py        VisualizerEngine – live preview and export frames, soft-light pass
   ui/
     app.py           AudioVistaUI – window, main loop, background tasks
     auth_screens.py  Log in / Create account
@@ -129,6 +133,16 @@ and stores 64 log-spaced frequency bands, an RMS loudness envelope and detected
 beat times (bass-energy onsets above the local average). Each frame, the renderer
 asks for the analysis at the player's current position, so the visuals line up
 with what you hear, and video export renders exactly the same frames.
+
+### Keeping the scenes smooth
+
+Everything is software-rendered with pygame, so the scenes are built to be cheap:
+skies (with baked-in dithering, so gradients never band), clouds, fog and glow
+sprites are generated once and cached; hills are plain polygon fills with
+anti-aliased edges, each filled only down to where the next hill covers it; and
+all soft light (sun haze, god rays, bloom, aurora) is drawn on a quarter-size
+surface that is blurred up and added on top in one pass. Animation only depends
+on the playback time and frame time, so exported videos match the preview.
 
 ### High-DPI displays
 

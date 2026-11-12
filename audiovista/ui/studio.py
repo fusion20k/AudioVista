@@ -77,7 +77,7 @@ class StudioScreen(Screen):
         self.smooth_slider = Slider(0.0, 0.95, self.settings.smoothing,
                                     lambda v: self.change_setting(smoothing=round(v, 2)))
         self.glow_toggle = Toggle("Glow", self.settings.glow, lambda v: self.change_setting(glow=v))
-        self.vintage_toggle = Toggle("Retro", self.settings.vintage, lambda v: self.change_setting(vintage=v))
+        self.atmos_toggle = Toggle("Haze", self.settings.atmosphere, lambda v: self.change_setting(atmosphere=v))
         self.title_toggle = Toggle("Title", self.settings.show_title,
                                    lambda v: self.change_setting(show_title=v))
         self.save_btn = Button("Save", self.click_save, kind="secondary", icon="save")
@@ -97,7 +97,7 @@ class StudioScreen(Screen):
 
         self.settings_widgets = [self.style_group, self.color_swatches, self.color2_swatches, self.bg_group,
                                  self.sens_slider, self.smooth_slider, self.glow_toggle, self.title_toggle,
-                                 self.vintage_toggle,
+                                 self.atmos_toggle,
                                  self.save_btn, self.export_btn]
         self.transport_widgets = [self.play_btn, self.prev_btn, self.next_btn, self.seek, self.volume,
                                   self.focus_btn]
@@ -191,7 +191,7 @@ class StudioScreen(Screen):
         self.smooth_slider.rect = pygame.Rect(pxx + px(4), y, pw - px(8), px(16))
         y += px(30)
         third = (pw - px(24)) // 3
-        for i, toggle in enumerate((self.glow_toggle, self.title_toggle, self.vintage_toggle)):
+        for i, toggle in enumerate((self.glow_toggle, self.title_toggle, self.atmos_toggle)):
             toggle.rect = pygame.Rect(pxx + i * (third + px(12)), y, third, px(30))
         bh = px(44)
         self.save_btn.rect = pygame.Rect(pxx, self.panel.bottom - bh - px(16), (pw - px(10)) // 2, bh)
@@ -376,7 +376,7 @@ class StudioScreen(Screen):
         self.smooth_slider.value = s.smoothing
         self.glow_toggle.value = s.glow
         self.title_toggle.value = s.show_title
-        self.vintage_toggle.value = s.vintage
+        self.atmos_toggle.value = s.atmosphere
 
     def click_save(self):
         if self.app.session.get_current_visualization() is None:
@@ -540,7 +540,7 @@ class StudioScreen(Screen):
             else:
                 surf.blit(pygame.transform.smoothscale(self._canvas_surface, c.size), c)
         else:
-            pygame.draw.rect(surf, (8, 9, 16), c)
+            pygame.draw.rect(surf, (9, 11, 20), c)
             if self.loading is None:
                 logo = pygame.Rect(0, 0, px(76), px(76))
                 logo.center = (c.centerx, c.centery - px(96))

@@ -18,7 +18,7 @@ class TestVisualSettings:
     def test_defaults_are_valid(self):
         s = VisualSettings().validate()
         assert s.wave_type in WAVE_TYPES
-        assert s.primary_rgb == (0xe8, 0x83, 0x3a)
+        assert s.primary_rgb == (0xff, 0xb3, 0x5c)
 
     def test_round_trip_through_dict(self):
         s = VisualSettings(color="#00e5ff", wave_type="particles", sensitivity=1.5, glow=False)
@@ -27,7 +27,7 @@ class TestVisualSettings:
 
     def test_from_dict_ignores_unknown_keys_and_fills_defaults(self):
         s = VisualSettings.from_dict({"wave_type": "waveform", "something_else": 1})
-        assert s.wave_type == "waveform" and s.background == "walnut"
+        assert s.wave_type == "waveform" and s.background == "sunset"
 
     @pytest.mark.parametrize("bad", [
         {"color": "red"}, {"color": "#12345"}, {"secondary_color": "#GGGGGG"},
@@ -44,8 +44,8 @@ class TestVisualSettings:
 
     def test_copy_changes_only_given_fields(self):
         s = VisualSettings()
-        c = s.copy(background="sepia")
-        assert c.background == "sepia" and s.background == "walnut"
+        c = s.copy(background="dawn")
+        assert c.background == "dawn" and s.background == "sunset"
         assert c.color == s.color
         with pytest.raises(ValidationError):
             s.copy(background="nope")
@@ -79,15 +79,19 @@ def analyzer():
 
 
 @pytest.mark.parametrize("style", WAVE_TYPES)
-def test_every_style_renders_something(analyzer, style):
+@pytest.mark.parametrize("effects", [False, True])
+def test_every_style_renders_a_moving_scene(analyzer, style, effects):
     pygame.init()
-    engine = VisualizerEngine(analyzer, VisualSettings(wave_type=style, background="charcoal",
-                                                       show_title=False, glow=False, vintage=False))
+    engine = VisualizerEngine(analyzer, VisualSettings(wave_type=style, background="night", show_title=False,
+                                                       glow=effects, atmosphere=effects))
     surface = pygame.Surface((320, 180))
-    for i in range(10):
+    engine.render(surface, 0.5, 1 / 30)
+    first = pygame.surfarray.array3d(surface).copy()
+    for i in range(1, 30):
         engine.render(surface, 0.5 + i / 30, 1 / 30)
-    pixels = pygame.surfarray.array3d(surface)
-    assert pixels.max() > 0, "renderer drew nothing on a black background"
+    last = pygame.surfarray.array3d(surface)
+    assert first.std() > 3, "the scene should not be a flat colour"
+    assert (first != last).any(), "the scene should move while the music plays"
 
 
 def test_unknown_style_raises():
@@ -131,8 +135,12 @@ def test_data_dir_is_a_real_on_disk_path(tmp_path, monkeypatch):
     assert str(path) == os.path.realpath(path)
 
 
-def test_settings_saved_before_the_warm_redesign_still_load():
-    old = {"color": "#7c5cff", "secondary_color": "#00e5ff", "background": "nebula",
-           "wave_type": "circular", "sensitivity": 1.0, "smoothing": 0.6, "glow": True, "show_title": True}
+@pytest.mark.parametrize("old_background, sky", [("nebula", "twilight"), ("walnut", "golden"),
+                                                 ("charcoal", "night"), ("midnight", "night")])
+def test_settings_saved_by_earlier_versions_still_load(old_background, sky):
+    old = {"color": "#7c5cff", "secondary_color": "#00e5ff", "background": old_background,
+           "wave_type": "circular", "sensitivity": 1.0, "smoothing": 0.6, "glow": True, "show_title": True,
+           "vintage": False}
     s = VisualSettings.from_dict(old)
-    assert s.background == "dusk" and s.vintage is True
+    assert s.background == sky
+    assert s.atmosphere is False          # the old "retro" switch carries over

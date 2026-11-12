@@ -14,23 +14,25 @@ from collections import OrderedDict
 import numpy as np
 import pygame
 
-# Warm, nostalgic palette: espresso browns, cream text, burnt-amber accents.
-BG = (20, 16, 13)
-PANEL = (30, 24, 19)
-PANEL_2 = (42, 34, 27)
-PANEL_3 = (56, 45, 36)
-BORDER = (72, 58, 46)
-TEXT = (243, 230, 208)
-TEXT_DIM = (192, 170, 140)
-TEXT_MUTED = (134, 116, 94)
-ACCENT = (222, 122, 52)
-ACCENT_HOVER = (240, 146, 76)
-ACCENT_DARK = (108, 56, 27)
-GOLD = (232, 186, 92)
-RUST = (186, 74, 52)
-DANGER = (226, 88, 72)
-SUCCESS = (156, 190, 102)
-WARNING = (236, 190, 80)
+# Dreamy dusk palette: twilight-blue panels, soft cream text and a warm
+# sunset-coral accent - like the sky just after the sun goes down.
+BG = (13, 16, 28)
+PANEL = (20, 24, 40)
+PANEL_2 = (29, 34, 54)
+PANEL_3 = (40, 46, 70)
+BORDER = (52, 59, 88)
+TEXT = (242, 238, 232)
+TEXT_DIM = (170, 174, 198)
+TEXT_MUTED = (110, 116, 146)
+ACCENT = (240, 118, 92)        # sunset coral
+ACCENT_HOVER = (250, 142, 112)
+ACCENT_DARK = (86, 44, 60)     # dusky plum (selected chips)
+GOLD = (255, 200, 120)         # golden-hour light
+RUST = (214, 98, 140)          # evening rose
+SKY = (128, 186, 255)
+DANGER = (240, 98, 108)
+SUCCESS = (126, 214, 156)
+WARNING = (255, 196, 108)
 
 SUPERSAMPLE = 3
 
@@ -314,16 +316,28 @@ LOGO_WAVE_LEFT = [(0.13, 0.53), (0.19, 0.53), (0.225, 0.43), (0.265, 0.63), (0.3
 LOGO_WAVE_RIGHT = [(1 - x, y) for x, y in reversed(LOGO_WAVE_LEFT)]
 
 
-def _logo_tile(size: int) -> pygame.Surface:
-    """Gradient squircle background of the logo at *size* px (not cached)."""
+def _logo_tile(size: int, scenery: bool = True) -> pygame.Surface:
+    """Sunset-sky squircle behind the logo at *size* px (not cached): a golden
+    glow at the top fading through rose to twilight violet, a soft sun and two
+    hills on the horizon."""
     yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) / max(1, size - 1)
-    t = np.clip((xx * 0.55 + yy * 0.45), 0, 1)[..., None]
-    c1 = np.array((246, 172, 70), np.float32)   # warm amber
-    c2 = np.array((200, 72, 40), np.float32)    # burnt orange / rust
-    rgb = c1 + (c2 - c1) * t
-    # soft highlight in the top-left corner
-    glow = np.clip(1.0 - np.sqrt((xx - 0.2) ** 2 + (yy - 0.15) ** 2) / 0.7, 0, 1)[..., None]
-    rgb = np.clip(rgb + glow * 34, 0, 255)
+    t = np.clip(yy * 0.85 + xx * 0.15, 0, 1)
+    stops = [(0.0, (255, 204, 128)), (0.45, (244, 128, 116)), (0.75, (178, 88, 156)), (1.0, (82, 64, 168))]
+    rgb = np.zeros((size, size, 3), np.float32)
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        f = np.clip((t - p0) / (p1 - p0), 0, 1)[..., None]
+        seg = (t >= p0) & (t <= p1)
+        rgb[seg] = (np.array(c0, np.float32) + (np.array(c1, np.float32) - np.array(c0, np.float32)) * f)[seg]
+    if scenery:
+        # soft sun glow behind the V
+        d = np.sqrt((xx - 0.5) ** 2 + (yy - 0.56) ** 2)
+        rgb += (np.clip(1 - d / 0.42, 0, 1) ** 2 * 70)[..., None] * np.array((1.0, 0.85, 0.6), np.float32)
+        # two rolling hills in deep twilight blue
+        for base, amp, ph, col, a in ((0.80, 0.06, 0.3, (70, 46, 120), 0.75), (0.88, 0.05, 2.0, (36, 28, 72), 0.9)):
+            hill = base - amp * np.sin(xx * 3.4 + ph)
+            m = np.clip((yy - hill) * size * 0.9, 0, 1)[..., None] * a
+            rgb = rgb * (1 - m) + np.array(col, np.float32) * m
+    rgb = np.clip(rgb, 0, 255)
     # mgrid gives (y, x) arrays; surfarray wants (x, y).
     tile = _to_alpha(pygame.surfarray.make_surface(rgb.transpose(1, 0, 2).astype(np.uint8)))
     mask = pygame.Surface((size, size), pygame.SRCALPHA)
@@ -355,18 +369,18 @@ def render_logo(size: int, tile: bool = True) -> pygame.Surface:
         return [(x * big_size, y * big_size) for x, y in path]
 
     stroke = pygame.Surface((big_size, big_size), pygame.SRCALPHA)
-    white = (255, 244, 224, 255)  # cream
+    white = (255, 248, 238, 255)  # warm white
     _lines(stroke, white, pts(LOGO_V), max(2, int(big_size * 0.115)))
     for wave in (LOGO_WAVE_LEFT, LOGO_WAVE_RIGHT):
         _lines(stroke, white, pts(wave), max(2, int(big_size * 0.06)))
     if stroke_col is None:
         # colour the stroke with the brand gradient
-        grad = _logo_tile(big_size)
+        grad = _logo_tile(big_size, scenery=False)
         grad.blit(stroke, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
         big.blit(grad, (0, 0))
     else:
         shadow = stroke.copy()
-        shadow.fill((90, 30, 10, 110), special_flags=pygame.BLEND_RGBA_MULT)
+        shadow.fill((60, 24, 70, 120), special_flags=pygame.BLEND_RGBA_MULT)
         big.blit(shadow, (0, int(big_size * 0.025)))
         big.blit(stroke, (0, 0))
     return pygame.transform.smoothscale(big, (size, size))

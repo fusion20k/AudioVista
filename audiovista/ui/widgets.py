@@ -47,7 +47,7 @@ class Button(Widget):
         "primary": (T.ACCENT, T.ACCENT_HOVER, (255, 255, 255), None),
         "secondary": (T.PANEL_2, T.PANEL_3, T.TEXT, T.BORDER),
         "ghost": (None, T.PANEL_2, T.TEXT_DIM, None),
-        "danger": (T.PANEL_2, (70, 30, 42), T.DANGER, T.BORDER),
+        "danger": (T.PANEL_2, (72, 32, 50), T.DANGER, T.BORDER),
         "link": (None, None, T.ACCENT_HOVER, None),
     }
 
@@ -549,20 +549,33 @@ class SeekBar(Widget):
             return True
         return False
 
+    def _render_bars(self, col) -> pygame.Surface:
+        r = self.rect
+        img = pygame.Surface(r.size, pygame.SRCALPHA)
+        n = len(self.overview)
+        bw = r.w / n
+        bar = max(1, int(bw * 0.62))
+        for i, v in enumerate(self.overview):
+            hh = max(px(3), v * r.h)
+            T.rrect(img, col, (int(i * bw), int(r.h / 2 - hh / 2), bar, int(hh)), bar // 2)
+        return img
+
     def draw(self, surf):
         r = self.rect
         pos = self._drag_pos if self.dragging else self.position
         t = pos / self.duration if self.duration > 0 else 0.0
         split = r.x + int(r.w * t)
         if self.overview is not None and len(self.overview):
-            n = len(self.overview)
-            bw = r.w / n
-            bar = max(1, int(bw * 0.62))
-            for i, v in enumerate(self.overview):
-                x = r.x + i * bw
-                hh = max(px(3), v * r.h)
-                col = T.ACCENT_HOVER if x < split else T.PANEL_3
-                T.rrect(surf, col, (int(x), int(r.centery - hh / 2), bar, int(hh)), bar // 2)
+            # The bars are drawn once per track/size in both colours; each frame
+            # just shows the "played" copy up to the playhead.
+            key = (id(self.overview), len(self.overview), r.size)
+            if getattr(self, "_bars_key", None) != key:
+                self._bars_key = key
+                self._bars = tuple(self._render_bars(col) for col in (T.PANEL_3, T.ACCENT_HOVER))
+            rest, played = self._bars
+            surf.blit(rest, r.topleft)
+            if split > r.x:
+                surf.blit(played, r.topleft, (0, 0, split - r.x, r.h))
         else:
             th = px(4)
             T.rrect(surf, T.PANEL_3, (r.x, r.centery - th // 2, r.w, th), th // 2)

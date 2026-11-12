@@ -132,17 +132,20 @@ class AudioFile:
 # --------------------------------------------------------------- VisualSettings
 
 # Style keys are stored in saved visualizations, so they stay stable even
-# though the styles have been redesigned (e.g. "waveform" is the tape deck).
+# though the styles have been redesigned (e.g. "waveform" is now the lakeside).
 WAVE_TYPES = ("bars", "waveform", "circular", "meters", "particles")
-WAVE_TYPE_LABELS = {"bars": "Equalizer", "waveform": "Tape Deck", "circular": "Turntable",
-                    "meters": "VU Meters", "particles": "Embers"}
-BACKGROUNDS = ("walnut", "ember", "sepia", "dusk", "charcoal")
-BACKGROUND_LABELS = {"walnut": "Walnut", "ember": "Ember", "sepia": "Sepia",
-                     "dusk": "Dusk", "charcoal": "Charcoal"}
-LEGACY_BACKGROUNDS = {"midnight": "walnut", "black": "charcoal", "nebula": "dusk",
-                      "sunset": "ember", "ocean": "sepia"}
-COLOR_PRESETS = ("#e8833a", "#f3c969", "#d9534f", "#f3e6d0",
-                 "#9bb35a", "#4f9a8f", "#d98c8c", "#7fa3c4")
+WAVE_TYPE_LABELS = {"bars": "Mountains", "waveform": "Lakeside", "circular": "Starlight",
+                    "meters": "Windmills", "particles": "Fireflies"}
+# The "background" is the time of day the scene is lit by.
+BACKGROUNDS = ("golden", "sunset", "dawn", "twilight", "night")
+BACKGROUND_LABELS = {"golden": "Golden", "sunset": "Sunset", "dawn": "Dawn",
+                     "twilight": "Twilight", "night": "Night"}
+# Backgrounds from earlier versions of the app, mapped to the closest sky.
+LEGACY_BACKGROUNDS = {"walnut": "golden", "ember": "sunset", "sepia": "dawn", "dusk": "twilight",
+                      "charcoal": "night", "midnight": "night", "black": "night", "nebula": "twilight",
+                      "ocean": "dawn"}
+COLOR_PRESETS = ("#ffb35c", "#ff8a7a", "#ff7eb6", "#c3a6ff",
+                 "#7fc8ff", "#6fe3cf", "#a8e27a", "#fff1d6")
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -157,15 +160,15 @@ class VisualSettings:
     """How a visualization looks. Matches the VisualSettings class in the DCD."""
 
     settings_id: int | None = None
-    color: str = "#e8833a"
-    secondary_color: str = "#f3c969"
-    background: str = "walnut"
+    color: str = "#ffb35c"
+    secondary_color: str = "#7fc8ff"
+    background: str = "sunset"
     wave_type: str = "bars"
     sensitivity: float = 1.0     # 0.5 (calm) .. 2.0 (very reactive)
     smoothing: float = 0.6       # 0 (jittery) .. 0.95 (very smooth)
     glow: bool = True
     show_title: bool = True
-    vintage: bool = True         # film grain, warm tint and vignette
+    atmosphere: bool = True      # god rays, fog, floating motes and a soft vignette
 
     def validate(self) -> "VisualSettings":
         hex_to_rgb(self.color)
@@ -199,8 +202,10 @@ class VisualSettings:
         if not isinstance(data, dict):
             raise ValidationError("Settings must be a dictionary.")
         known = {f.name for f in fields(cls)} - {"settings_id"}
-        if data.get("background") in LEGACY_BACKGROUNDS:  # saved before the warm redesign
+        if data.get("background") in LEGACY_BACKGROUNDS:  # saved by an earlier version
             data = {**data, "background": LEGACY_BACKGROUNDS[data["background"]]}
+        if "vintage" in data and "atmosphere" not in data:
+            data = {**data, "atmosphere": bool(data["vintage"])}
         settings = cls(settings_id=settings_id, **{k: v for k, v in data.items() if k in known})
         return settings.validate()
 
