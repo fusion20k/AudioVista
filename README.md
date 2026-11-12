@@ -22,9 +22,9 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | --- | --- |
 | Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
 | Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
-| Readable soundwave: the Waveform style runs the real waveform like a film strip past a scanner head (played part bright, upcoming part faint), plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.envelope_buckets` |
+| Readable soundwave: the Waveform style draws the live sound wave as a flowing ribbon with fading echoes, plus a waveform overview of the whole track on the seek bar | `WaveformRenderer`, `AudioAnalyzer.overview` |
 | Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
-| Three modern styles built like small machines: Spectrum (piston bars in slots, sliding peak markers, a bass-driven gear train), Waveform (film strip between sprocket gears, scanner head with level needles, moving ruler), Radial (spectrum ring on a meshing planetary gearbox, shockwaves on beats, optional swirling particles) | `visuals/renderers.py` |
+| Three modern, constantly moving styles: Spectrum (spring-loaded bars that bounce, a rippling floor, falling peak caps, sparks on the beat), Waveform (the live wave as a glowing ribbon with fading echoes and a reflection), Radial (a breathing ring of spectrum bars around a wobbling spectrum blob, orbiting dots, shockwaves, and optional particles streaming out of the centre) | `visuals/renderers.py` |
 | Settings: primary/accent colour, sky background (Golden, Sunset, Dawn, Twilight, Night), sensitivity, smoothing, glow, title, haze (soft vignette and warm glow) | `VisualSettings`, studio right panel |
 | Play / pause, seek, volume, previous / next | `AudioPlayer`, studio transport bar |
 | Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |
