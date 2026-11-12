@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import time
 
-import numpy as np
+import math
+
 import pygame
+import pygame.gfxdraw as gfx
 
 from ..errors import AccountExistsError, AudioVistaError, ValidationError
-from ..visuals import scenery as S
+from ..visuals.backgrounds import get_background
 from . import theme as T
 from .theme import px
 from .widgets import Button, TextInput
@@ -27,80 +29,39 @@ class Screen:
 
 
 class AmbientBackdrop:
-    """A calm sunset landscape behind the account screens: drifting clouds,
-    light rays, a lake that mirrors the sky, fireflies.
-
-    It is rendered at half the window size, at most 30 times a second, and
-    smoothly scaled up - it is soft by nature, so this looks the same and keeps
-    typing in the form responsive.
-    """
-
-    HORIZON = 0.63
+    """A sunset-sky gradient with slow, glowing waves behind the account screens."""
 
     def __init__(self):
-        self.pal = S.palette("sunset")
-        self.clouds = S.CloudLayer(5, seed=4, y_range=(0.06, 0.42), size_range=(0.2, 0.36))
-        self.stars = S.StarField(160, seed=8)
-        self.motes = S.Motes(36, seed=2, region=(0.0, 1.0, 0.25, 0.8))
-        self.flies = S.Fireflies(28, seed=6, region=(0.0, 1.0, 0.74, 0.97))
-        self._scene: pygame.Surface | None = None
-        self._big: pygame.Surface | None = None
-        self._light: pygame.Surface | None = None
-        self._light_big: pygame.Surface | None = None
-        self._last = -1.0
+        self._surface: pygame.Surface | None = None
+        self._scale = 2  # drawn at half resolution then smooth-scaled (soft look, cheap)
 
     def draw(self, surf: pygame.Surface, t: float) -> None:
         w, h = surf.get_size()
-        sw, sh = max(16, w // 2), max(16, h // 2)
-        if self._scene is None or self._scene.get_size() != (sw, sh) or self._big.get_size() != (w, h):
-            self._scene = pygame.Surface((sw, sh))
-            self._big = pygame.Surface((w, h))
-            self._light = pygame.Surface((max(4, sw // 4), max(4, sh // 4)))
-            self._light_big = pygame.Surface((sw, sh))
-            self._last = -1.0
-        if self._last < 0 or t - self._last >= 1 / 30:
-            self._last = t
-            self._render(t)
-            pygame.transform.smoothscale(self._scene, (w, h), self._big)
-        surf.blit(self._big, (0, 0))
-
-    def _render(self, t: float) -> None:
-        s, light, pal = self._scene, self._light, self.pal
-        w, h = s.get_size()
-        u = min(w, h)
-        k = light.get_width() / w
-        hy = int(h * self.HORIZON)
-        clock = t * 0.6
-        light.fill((0, 0, 0))
-
-        s.blit(S.sky_surface(pal, (w, h), self.HORIZON), (0, 0))
-        self.stars.draw(s, light, k, w, h, hy, t, 0.35, 0.0, u)
-        sx, sy = w * 0.70, hy - h * 0.07
-        S.aa_circle(s, S.lerp(pal.sun, pal.halo, 0.2), (sx, sy), u * 0.062)
-        S.aa_circle(s, pal.sun, (sx, sy), u * 0.058)
-        S.add_glow(light, (sx * k, sy * k), u * 0.7 * k, pal.halo, 0.42, power=2.2)
-        S.add_glow(light, (sx * k, sy * k), u * 0.2 * k, pal.sun, 0.5, power=1.6)
-        S.god_rays(light, (sx * k, sy * k), u * 1.2 * k, pal.halo, 0.32, t * 0.02, floor=hy * k, seed=5)
-        self.clouds.draw(s, hy, clock, pal)
-        S.draw_birds(s, w, h, t, S.lerp(pal.near, S.sky_at(pal, 0.4), 0.25), u, seed=2)
-
-        xs = np.linspace(0, 1, 360)
-        X = xs * w
-        far = hy - h * (0.07 + 0.15 * S.ridge(xs + clock * 0.002, 11, 5, sharp=0.6))
-        mid = hy - h * (0.01 + 0.06 * S.ridge(xs + clock * 0.004, 12, 3))
-        S.fill_profile(s, S.land(pal, 0.2), X, far, hy + 2)
-        S.fog(s, hy - h * 0.12, h * 0.12, pal.haze, 0.5)
-        S.fill_profile(s, S.land(pal, 0.5), X, mid, hy + 2)
-        S.reflect(s, hy, clock, pal, u, 0.8)
-        for j in range(5):
-            fy = hy + (h - hy) * (0.06 + j * 0.18)
-            S.add_glow(light, (sx * k, fy * k), u * k * (0.07 + j * 0.02), pal.halo, 0.26 - j * 0.04)
-        self.motes.draw(s, light, k, w, h, clock, t, S.lerp(pal.halo, (255, 255, 255), 0.4), u, 0.8)
-        self.flies.draw(s, light, k, w, h, clock, 0.6, 0.0, T.GOLD, T.SKY, u, 0.8)
-
-        pygame.transform.smoothscale(light, (w, h), self._light_big)
-        s.blit(self._light_big, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
-        S.vignette(s)
+        sw, sh = max(1, w // self._scale), max(1, h // self._scale)
+        if self._surface is None or self._surface.get_size() != (sw, sh):
+            self._surface = pygame.Surface((sw, sh))
+            self._layer = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        small = self._surface
+        small.blit(get_background("sunset", (sw, sh)), (0, 0))
+        n = 120
+        xs = [i * sw / (n - 1) for i in range(n)]
+        for k, (col, speed, freq, amp, base) in enumerate([
+                (T.GOLD, 0.45, 1.6, 0.10, 0.70), (T.ACCENT, 0.30, 2.3, 0.08, 0.76),
+                (T.RUST, 0.6, 1.1, 0.06, 0.82)]):
+            pts = [(0, sh)]
+            for i, x in enumerate(xs):
+                u = i / (n - 1)
+                y = (base + amp * math.sin(2 * math.pi * (u * freq + t * speed * 0.2) + k)
+                     * (0.6 + 0.4 * math.sin(t * 0.7 + u * 3 + k))) * sh
+                pts.append((x, y))
+            pts.append((sw, sh))
+            layer = self._layer
+            layer.fill((0, 0, 0, 0))
+            gfx.filled_polygon(layer, pts, (*T.BG, 70))
+            gfx.aapolygon(layer, pts, (*T.BG, 70))
+            pygame.draw.aalines(layer, (*col, 170), False, pts[1:-1])
+            small.blit(layer, (0, 0))
+        surf.blit(pygame.transform.smoothscale(small, (w, h)), (0, 0))
 
 
 class AuthScreen(Screen):

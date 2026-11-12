@@ -132,11 +132,11 @@ class AudioFile:
 # --------------------------------------------------------------- VisualSettings
 
 # Style keys are stored in saved visualizations, so they stay stable even
-# though the styles have been redesigned (e.g. "waveform" is now the lakeside).
+# though the styles have been redesigned (e.g. "waveform" is the tape deck).
 WAVE_TYPES = ("bars", "waveform", "circular", "meters", "particles")
-WAVE_TYPE_LABELS = {"bars": "Mountains", "waveform": "Lakeside", "circular": "Starlight",
-                    "meters": "Windmills", "particles": "Fireflies"}
-# The "background" is the time of day the scene is lit by.
+WAVE_TYPE_LABELS = {"bars": "Equalizer", "waveform": "Tape Deck", "circular": "Turntable",
+                    "meters": "VU Meters", "particles": "Embers"}
+# Backgrounds are skies at different times of day.
 BACKGROUNDS = ("golden", "sunset", "dawn", "twilight", "night")
 BACKGROUND_LABELS = {"golden": "Golden", "sunset": "Sunset", "dawn": "Dawn",
                      "twilight": "Twilight", "night": "Night"}
@@ -168,7 +168,7 @@ class VisualSettings:
     smoothing: float = 0.6       # 0 (jittery) .. 0.95 (very smooth)
     glow: bool = True
     show_title: bool = True
-    atmosphere: bool = True      # god rays, fog, floating motes and a soft vignette
+    atmosphere: bool = True      # "Haze": soft vignette and a warm glow from below
 
     def validate(self) -> "VisualSettings":
         hex_to_rgb(self.color)

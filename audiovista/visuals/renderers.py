@@ -1,30 +1,25 @@
-"""Visualizer styles: living landscapes that move with the music.
+"""Visualizer styles: hi-fi equipment with lots of moving parts, in dusk colours.
 
-* bars      - Mountains: the front mountain range *is* the spectrum (bass on the
-              left, treble on the right), with glowing rim light, falling
-              peak-hold stars, parallax ranges, fog, clouds and god rays.
-* waveform  - Lakeside: the real waveform drifts across the sky like an aurora
-              ribbon (played part bright, upcoming part faint) and is mirrored
-              in a rippling lake; beats send rings across the water.
-* circular  - Starlight: a radial spectrum crown around the moon, an orrery of
-              orbiting lights, aurora, a slowly turning star field and
-              shooting stars on the beat.
-* meters    - Windmills: rolling hills with three windmills whose sails are
-              driven by the bass, mids and treble; the sun crosses the sky over
-              the length of the song.
-* particles - Fireflies: a dusk meadow where the grass height follows the
-              spectrum and fireflies wake up with the treble and flash on beats.
+* bars      - Equalizer: LED-ladder spectrum analyzer with peak-hold lights,
+              signal lamps and rotary knobs.
+* waveform  - Tape Deck: reel-to-reel machine; reels spin (and fill/empty as the
+              song plays), the real waveform runs along the tape past the head,
+              spring-loaded VU needles and a rolling tape counter.
+* circular  - Turntable: spinning record and label, strobe dots, grooves that glow
+              with the spectrum and a tonearm that tracks inward over the song.
+* meters    - VU Meters: two big analog meters and bass/mid/treble gauges with
+              springy needles, driven by meshing clockwork gears.
+* particles - Embers: glowing sparks rising over spectrum-shaped dunes at sunset.
 
-``draw`` paints the scene onto the (opaque) frame. Soft light is drawn on the
-quarter-resolution ``light`` surface (``k`` = its scale), which the engine
-blurs and adds on top; ``light`` is ``None`` when glow and atmosphere are off.
-All motion is driven by the analysis frame and ``dt``, so exported videos
-match the live preview.
+Every renderer draws onto a transparent layer; the engine adds the background,
+glow and soft haze. All motion is driven by the analysis frame and
+``dt`` only, so exported videos match the live preview.
 """
 
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 
 import numpy as np
 import pygame
@@ -32,14 +27,30 @@ import pygame.gfxdraw as gfx
 
 from ..audio.analyzer import AnalysisFrame
 from ..models import VisualSettings
-from .scenery import (TAU, CloudLayer, add_scaled, Fireflies, Grass, Motes, StarField, aa_circle, aa_line, aa_poly,
-                      add_glow, clamp01, draw_birds, fill_profile, fog, god_rays, grassy, land, lerp,
-                      moon_sprite, night_version, palette, pine, reflect, ridge, round_tree, scale,
-                      sky_at, sky_surface, treeline_surface)
 
-# Kept for code that imported the old helpers.
-lerp_color = lerp
-scale_color = scale
+# Equipment colours
+METAL = (170, 170, 198)
+METAL_LIGHT = (216, 214, 236)
+METAL_DARK = (84, 84, 112)
+PLATE = (26, 25, 40)
+PLATE_EDGE = (58, 57, 87)
+CREAM = (255, 236, 220)
+INK = (31, 29, 49)
+RED = (240, 98, 108)
+TAPE = (52, 51, 98)
+WHITE = (255, 248, 232)
+
+
+# ------------------------------------------------------------------ helpers
+
+def lerp_color(a, b, t: float):
+    t = min(max(t, 0.0), 1.0)
+    return (int(a[0] + (b[0] - a[0]) * t), int(a[1] + (b[1] - a[1]) * t),
+            int(a[2] + (b[2] - a[2]) * t))
+
+
+def scale_color(c, k: float):
+    return (min(255, int(c[0] * k)), min(255, int(c[1] * k)), min(255, int(c[2] * k)))
 
 
 def resample(values: np.ndarray, n: int) -> np.ndarray:
@@ -47,6 +58,317 @@ def resample(values: np.ndarray, n: int) -> np.ndarray:
         return values
     return np.interp(np.linspace(0, len(values) - 1, n), np.arange(len(values)), values)
 
+
+def clamp01(v: float) -> float:
+    return min(max(v, 0.0), 1.0)
+
+
+def aa_line(surf, color, a, b, width: float) -> None:
+    """Anti-aliased line of any thickness."""
+    if width <= 1.5:
+        pygame.draw.aaline(surf, color, a, b)
+        return
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy) or 1.0
+    nx, ny = -dy / length * width / 2, dx / length * width / 2
+    pts = [(a[0] + nx, a[1] + ny), (b[0] + nx, b[1] + ny), (b[0] - nx, b[1] - ny), (a[0] - nx, a[1] - ny)]
+    gfx.aapolygon(surf, pts, color)
+    gfx.filled_polygon(surf, pts, color)
+
+
+def aa_circle(surf, color, center, radius: float, width: int = 0) -> None:
+    x, y, r = int(center[0]), int(center[1]), int(radius)
+    if r < 1:
+        return
+    if width:
+        for k in range(max(1, int(width))):
+            if r - k >= 1:
+                gfx.aacircle(surf, x, y, r - k, color)
+    else:
+        gfx.filled_circle(surf, x, y, r, color)
+        gfx.aacircle(surf, x, y, r, color)
+
+
+def aa_poly(surf, color, pts) -> None:
+    gfx.filled_polygon(surf, pts, color)
+    gfx.aapolygon(surf, pts, color)
+
+
+def blend_poly(surf, color, pts) -> None:
+    """Translucent polygon that blends correctly onto a per-pixel-alpha layer."""
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    x0, y0 = int(min(xs)) - 1, int(min(ys)) - 1
+    tmp = pygame.Surface((int(max(xs)) - x0 + 2, int(max(ys)) - y0 + 2), pygame.SRCALPHA)
+    aa_poly(tmp, color, [(x - x0, y - y0) for x, y in pts])
+    surf.blit(tmp, (x0, y0))
+
+
+_glows: dict = {}
+
+
+def glow(surf, color, center, radius: float, strength: float = 1.0) -> None:
+    """Soft round glow (cached sprite, blended properly)."""
+    r = max(2, int(radius))
+    key = (r, tuple(color[:3]))
+    spr = _glows.get(key)
+    if spr is None:
+        size = 2 * r
+        xx, yy = np.mgrid[0:size, 0:size].astype(np.float32)
+        d = np.sqrt((xx - r + 0.5) ** 2 + (yy - r + 0.5) ** 2) / r
+        spr = pygame.Surface((size, size), pygame.SRCALPHA)
+        spr.fill((*color[:3], 0))
+        pygame.surfarray.pixels_alpha(spr)[:] = (np.clip(1 - d, 0, 1) ** 2 * 255).astype(np.uint8)
+        if len(_glows) > 200:
+            _glows.clear()
+        _glows[key] = spr
+    spr.set_alpha(int(255 * clamp01(strength)))
+    surf.blit(spr, (int(center[0]) - r, int(center[1]) - r))
+
+
+def mix(base, color, alpha: float):
+    """Opaque colour equal to *color* at *alpha* over *base* (avoids alpha holes)."""
+    return lerp_color(base, color, alpha)
+
+
+_fonts: dict = {}
+_texts: OrderedDict = OrderedDict()
+
+
+def text(surf, s: str, pos, size: int, color, anchor: str = "center", serif: bool = False) -> None:
+    """Cached label text in an equipment-style typeface."""
+    size = max(6, int(size))
+    key = (s, size, tuple(color), serif)
+    img = _texts.get(key)
+    if img is None:
+        fkey = (size, serif)
+        if fkey not in _fonts:
+            if not pygame.font.get_init():
+                pygame.font.init()
+            name = "segoeuisemibold,segoeui,arial" if serif else "bahnschrift,segoeui,arial"
+            _fonts[fkey] = pygame.font.SysFont(name, size, bold=serif)
+        img = _fonts[fkey].render(s, True, color[:3])
+        if len(color) == 4:
+            img.set_alpha(color[3])
+        _texts[key] = img
+        if len(_texts) > 600:
+            _texts.popitem(last=False)
+    surf.blit(img, img.get_rect(**{anchor: (int(pos[0]), int(pos[1]))}))
+
+
+class Spring:
+    """Damped spring, used for needles so they swing and overshoot like real meters."""
+
+    def __init__(self, stiffness: float = 170.0, damping: float = 13.0):
+        self.k, self.c = stiffness, damping
+        self.x = 0.0
+        self.v = 0.0
+
+    def update(self, target: float, dt: float) -> float:
+        if dt <= 0.0015:          # paused: needles freeze
+            return self.x
+        steps = max(1, int(dt / 0.004))
+        h = dt / steps
+        for _ in range(steps):
+            a = self.k * (target - self.x) - self.c * self.v
+            self.v += a * h
+            self.x += self.v * h
+        return self.x
+
+
+def faceplate(surf, rect, u: float, alpha: int = 235) -> None:
+    r = pygame.Rect(rect)
+    rad = max(4, int(u * 0.03))
+    pygame.draw.rect(surf, (*PLATE, alpha), r, border_radius=rad)
+    pygame.draw.rect(surf, (*PLATE_EDGE, 255), r, max(1, int(u / 320)), border_radius=rad)
+    inset = int(u * 0.02)
+    for x, y, a in ((r.x + inset, r.y + inset, 0.4), (r.right - inset, r.y + inset, 1.3),
+                    (r.x + inset, r.bottom - inset, 2.1), (r.right - inset, r.bottom - inset, 0.9)):
+        screw(surf, x, y, u * 0.011, a)
+
+
+def screw(surf, x, y, r, angle) -> None:
+    aa_circle(surf, METAL_DARK, (x, y), r)
+    aa_circle(surf, METAL, (x, y), r * 0.82)
+    dx, dy = math.cos(angle) * r * 0.7, math.sin(angle) * r * 0.7
+    aa_line(surf, INK, (x - dx, y - dy), (x + dx, y + dy), max(1.0, r * 0.25))
+
+
+def knob(surf, cx, cy, r, value: float, accent, label: str = "", u: float = 600) -> None:
+    """Rotary knob with knurled edge, scale ticks and a pointer at *value* (0..1)."""
+    for i in range(11):                                      # scale ticks
+        a = math.radians(135 + 27 * i)
+        aa_line(surf, mix(PLATE, CREAM, 0.6), (cx + math.cos(a) * r * 1.18, cy + math.sin(a) * r * 1.18),
+                (cx + math.cos(a) * r * 1.32, cy + math.sin(a) * r * 1.32), max(1.0, r / 14))
+    aa_circle(surf, (18, 17, 26), (cx, cy), r * 1.06)
+    aa_circle(surf, (46, 44, 64), (cx, cy), r)
+    angle = math.radians(135 + 270 * clamp01(value))
+    for i in range(28):                                      # knurling turns with the knob
+        a = angle + 2 * math.pi * i / 28
+        aa_line(surf, (66, 64, 91), (cx + math.cos(a) * r * 0.78, cy + math.sin(a) * r * 0.78),
+                (cx + math.cos(a) * r * 0.98, cy + math.sin(a) * r * 0.98), max(1.0, r / 18))
+    aa_circle(surf, METAL, (cx, cy), r * 0.68)
+    aa_circle(surf, METAL_LIGHT, (cx - r * 0.12, cy - r * 0.12), r * 0.42)
+    aa_circle(surf, METAL, (cx, cy), r * 0.42)
+    aa_line(surf, accent, (cx + math.cos(angle) * r * 0.2, cy + math.sin(angle) * r * 0.2),
+            (cx + math.cos(angle) * r * 0.9, cy + math.sin(angle) * r * 0.9), max(2.0, r / 6))
+    if label:
+        text(surf, label, (cx, cy + r * 1.62), max(7, int(u * 0.024)), (*CREAM, 200))
+
+
+def lamp(surf, cx, cy, r, on: float, color, label: str, u: float) -> None:
+    aa_circle(surf, (15, 14, 22), (cx, cy), r * 1.25)
+    if on > 0.05:
+        glow(surf, color, (cx, cy), r * 3.2, 0.55 * on)
+    bulb = lerp_color(scale_color(color, 0.25), color, on)
+    aa_circle(surf, bulb, (cx, cy), r)
+    aa_circle(surf, mix(bulb, WHITE, 0.55 * on), (cx - r * 0.3, cy - r * 0.3), r * 0.35)
+    text(surf, label, (cx, cy + r * 2.4), max(7, int(u * 0.022)), (*CREAM, 190))
+
+
+def gear_points(cx, cy, r, teeth: int, angle: float, depth: float = 0.13):
+    pts = []
+    step = 2 * math.pi / teeth
+    for i in range(teeth):
+        a0 = angle + i * step
+        for frac, rad in ((0.0, r * (1 - depth)), (0.14, r), (0.38, r), (0.52, r * (1 - depth))):
+            a = a0 + step * frac
+            pts.append((cx + math.cos(a) * rad, cy + math.sin(a) * rad))
+    return pts
+
+
+def gear(surf, cx, cy, r, teeth, angle, color, alpha=255) -> None:
+    aa_poly(surf, (*color, alpha), gear_points(cx, cy, r, teeth, angle))
+    dark = scale_color(color, 0.45)
+    for i in range(5):                                       # lightening holes
+        a = angle + 2 * math.pi * i / 5
+        aa_circle(surf, (*dark, alpha), (cx + math.cos(a) * r * 0.55, cy + math.sin(a) * r * 0.55), r * 0.17)
+    aa_circle(surf, (*scale_color(color, 1.15), alpha), (cx, cy), r * 0.24)
+    aa_circle(surf, (*dark, alpha), (cx, cy), r * 0.1)
+
+
+# ------------------------------------------------------------ gauge faces
+
+_faces: dict = {}
+
+
+def _vu_curve(db: float) -> float:
+    """Position (0..1) of a dB value on a classic VU scale (-20 .. +3)."""
+    lo, hi = 10 ** (-20 / 20), 10 ** (3 / 20)
+    return (10 ** (db / 20) - lo) / (hi - lo)
+
+
+VU_SWING = math.radians(50)
+
+
+def vu_face(w: int, h: int, label: str) -> pygame.Surface:
+    """Cream, backlit VU meter face (cached)."""
+    key = ("vu", w, h, label)
+    face = _faces.get(key)
+    if face is not None:
+        return face
+    xx, yy = np.mgrid[0:w, 0:h].astype(np.float32)
+    d = np.sqrt(((xx - w / 2) / w) ** 2 + ((yy - h * 0.75) / h) ** 2)
+    glow = np.clip(1.0 - d * 1.3, 0, 1)[..., None]
+    rgb = np.array((255, 214, 180), np.float32) + glow * np.array((50, 58, 70), np.float32)
+    face = pygame.Surface((w, h), pygame.SRCALPHA)
+    face.blit(pygame.surfarray.make_surface(np.clip(rgb, 0, 255).astype(np.uint8)), (0, 0))
+    mask = pygame.Surface((w, h), pygame.SRCALPHA)
+    pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=max(3, int(h * 0.06)))
+    face.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+
+    px, py = w / 2, h * 1.12               # pivot below the face
+    ra = h * 0.92
+    lw = max(1.0, h / 120)
+
+    def at(pos, rad):
+        a = -VU_SWING + 2 * VU_SWING * pos - math.pi / 2
+        return px + math.cos(a) * rad, py + math.sin(a) * rad
+
+    for pos0, pos1, col, wid in ((0.0, _vu_curve(0), INK, lw), (_vu_curve(0), 1.0, RED, lw * 3)):
+        pts = [at(pos0 + (pos1 - pos0) * k / 40, ra) for k in range(41)]
+        for a, b in zip(pts, pts[1:]):
+            aa_line(face, col, a, b, wid)
+    fs = max(7, int(h * 0.085))
+    for db in (-20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3):
+        pos = _vu_curve(db)
+        col = RED if db > 0 else INK
+        aa_line(face, col, at(pos, ra), at(pos, ra + h * 0.07), max(1.0, h / 90))
+        text(face, f"+{db}" if db > 0 else str(db), at(pos, ra + h * 0.15), fs, col)
+    for k in range(21):                                    # minor ticks
+        aa_line(face, (*INK, 150), at(k / 20, ra), at(k / 20, ra + h * 0.035), 1)
+    text(face, "VU", (w / 2, h * 0.62), int(h * 0.17), INK, serif=True)
+    text(face, label, (w * 0.08, h * 0.80), max(7, int(h * 0.065)), (*INK, 180), anchor="midleft")
+    text(face, "AUDIOVISTA", (w * 0.92, h * 0.80), max(7, int(h * 0.055)), (*INK, 150), anchor="midright")
+    blend_poly(face, (255, 255, 255, 22), [(0, 0), (w * 0.42, 0), (w * 0.22, h), (0, h)])   # glass glare
+    _faces[key] = face
+    return face
+
+
+def draw_vu(surf, rect, position: float, label: str, peak: float) -> None:
+    rect = pygame.Rect(rect)
+    w, h = rect.size
+    bezel = max(2, int(h * 0.05))
+    pygame.draw.rect(surf, (13, 12, 20), rect.inflate(bezel * 2, bezel * 2), border_radius=int(h * 0.09))
+    pygame.draw.rect(surf, PLATE_EDGE, rect.inflate(bezel * 2, bezel * 2), max(1, bezel // 3),
+                     border_radius=int(h * 0.09))
+    surf.blit(vu_face(w, h, label), rect)
+    px, py = rect.x + w / 2, rect.y + h * 1.12
+    a = -VU_SWING + 2 * VU_SWING * min(max(position, -0.04), 1.06) - math.pi / 2
+    tip = (px + math.cos(a) * h * 1.02, py + math.sin(a) * h * 1.02)
+    base = (px + math.cos(a) * h * 0.30, py + math.sin(a) * h * 0.30)
+    clip = surf.get_clip()
+    surf.set_clip(rect)
+    aa_line(surf, (113, 117, 168), (base[0] + h * 0.03, base[1] + h * 0.02), (tip[0] + h * 0.03, tip[1] + h * 0.02),
+            max(1.5, h / 70))   # needle shadow, pre-mixed with the face colour
+    aa_line(surf, (22, 20, 33), base, tip, max(1.5, h / 70))
+    surf.set_clip(clip)
+    pygame.draw.rect(surf, (18, 17, 26), (rect.x, rect.bottom - h * 0.09, w, h * 0.09),
+                     border_bottom_left_radius=int(h * 0.06), border_bottom_right_radius=int(h * 0.06))
+    lamp_on = clamp01((peak - 0.85) / 0.15)
+    aa_circle(surf, lerp_color((70, 22, 16), (255, 80, 50), lamp_on), (rect.right - h * 0.12, rect.y + h * 0.13),
+              h * 0.045)
+
+
+def gauge_face(r: int, label: str) -> pygame.Surface:
+    key = ("gauge", r, label)
+    face = _faces.get(key)
+    if face is not None:
+        return face
+    size = 2 * r + 2
+    face = pygame.Surface((size, size), pygame.SRCALPHA)
+    c = (r + 1, r + 1)
+    aa_circle(face, (15, 14, 22), c, r)
+    aa_circle(face, METAL_DARK, c, r * 0.96)
+    aa_circle(face, (255, 224, 200), c, r * 0.90)
+    for i in range(51):
+        a = math.radians(135 + 270 * i / 50)
+        long = i % 5 == 0
+        col = RED if i > 40 else INK
+        r0 = r * (0.70 if long else 0.76)
+        aa_line(face, col, (c[0] + math.cos(a) * r0, c[1] + math.sin(a) * r0),
+                (c[0] + math.cos(a) * r * 0.82, c[1] + math.sin(a) * r * 0.82), max(1.0, r / (40 if long else 90)))
+        if long:
+            text(face, str(i // 5), (c[0] + math.cos(a) * r * 0.58, c[1] + math.sin(a) * r * 0.58),
+                 max(6, int(r * 0.15)), col)
+    text(face, label, (c[0], c[1] + r * 0.42), max(6, int(r * 0.16)), INK, serif=True)
+    blend_poly(face, (255, 255, 255, 24), [(c[0] - r * 0.7, c[1] - r * 0.7), (c[0] + r * 0.1, c[1] - r * 0.88),
+                                           (c[0] - r * 0.5, c[1] - r * 0.1)])
+    _faces[key] = face
+    return face
+
+
+def draw_gauge(surf, cx, cy, r, value: float, label: str, accent) -> None:
+    face = gauge_face(int(r), label)
+    surf.blit(face, face.get_rect(center=(int(cx), int(cy))))
+    a = math.radians(135 + 270 * min(max(value, -0.02), 1.03))
+    tip = (cx + math.cos(a) * r * 0.80, cy + math.sin(a) * r * 0.80)
+    tail = (cx - math.cos(a) * r * 0.18, cy - math.sin(a) * r * 0.18)
+    aa_line(surf, (*scale_color(accent, 0.8), 255), tail, tip, max(1.5, r / 28))
+    aa_circle(surf, METAL_DARK, (cx, cy), r * 0.09)
+    aa_circle(surf, METAL, (cx, cy), r * 0.06)
+
+
+# ------------------------------------------------------------ base class
 
 class BaseRenderer:
     style = "base"
@@ -60,6 +382,11 @@ class BaseRenderer:
     def reset(self) -> None:
         self._levels = None
         self._levels_frame = None
+
+    def draw_backdrop(self, target: pygame.Surface, frame: AnalysisFrame, settings: VisualSettings,
+                      dt: float) -> None:
+        """Optional: draw opaque scenery straight onto the frame, under the layer
+        (cheaper than the layer and left out of the glow pass)."""
 
     def levels(self, frame: AnalysisFrame, settings: VisualSettings, dt: float) -> np.ndarray:
         """Band levels after sensitivity and attack/decay smoothing (once per frame)."""
@@ -84,678 +411,695 @@ class BaseRenderer:
         return (float(levels[: n // 4].mean()), float(levels[n // 4: 5 * n // 8].mean()),
                 float(levels[5 * n // 8:].mean()))
 
-    def draw(self, target: pygame.Surface, light: pygame.Surface | None, k: float,
-             frame: AnalysisFrame, settings: VisualSettings, dt: float) -> None:
+    def draw(self, layer: pygame.Surface, frame: AnalysisFrame, settings: VisualSettings,
+             dt: float) -> None:
         raise NotImplementedError
 
 
-class SceneRenderer(BaseRenderer):
-    """Shared state for the landscape scenes."""
+# ------------------------------------------------------------- Equalizer
 
-    horizon = 0.66
+class BarsRenderer(BaseRenderer):
+    """Graphic spectrum analyzer: LED ladders, falling peak lights, lamps and knobs."""
 
-    def __init__(self):
-        super().__init__()
-        self.clock = 0.0          # "world" time: runs a little faster when the music is loud
-        self.calm = 0.0           # slow-moving loudness
-
-    def reset(self) -> None:
-        super().reset()
-        self.clock = 0.0
-        self.calm = 0.0
-
-    def tick(self, frame: AnalysisFrame, dt: float) -> bool:
-        playing = dt > 0.0015
-        if playing:
-            self.clock += dt * (0.7 + 0.8 * frame.volume)
-            self.calm += (frame.volume - self.calm) * (1 - 0.2 ** dt)
-        return playing
-
-    @staticmethod
-    def sun(target, light, k, pos, r, pal, energy: float, u: float) -> None:
-        """Sun (or moon, for night palettes) with its haze on the light surface."""
-        x, y = pos
-        if pal.moon:
-            spr = moon_sprite(int(r * 0.8), pal.sun)
-            target.blit(spr, spr.get_rect(center=(int(x), int(y))))
-        else:
-            aa_circle(target, lerp(pal.sun, pal.halo, 0.15), (x, y), r * 1.06)
-            aa_circle(target, pal.sun, (x, y), r)
-        if light is not None:
-            soft = 0.45 if pal.moon else 1.0
-            add_glow(light, (x * k, y * k), u * 0.62 * k, pal.halo, (0.30 + 0.30 * energy) * soft, power=2.2)
-            add_glow(light, (x * k, y * k), r * 3.2 * k, pal.sun, (0.45 + 0.35 * energy) * soft, power=1.6)
-
-
-# ------------------------------------------------------------- Mountains
-
-class MountainsRenderer(SceneRenderer):
     style = "bars"
-    horizon = 0.70
+    SEGMENTS = 18
 
     def __init__(self):
         super().__init__()
-        self.clouds = CloudLayer(6, seed=21, y_range=(0.06, 0.46))
-        self.stars = StarField(200, seed=3)
-        self.motes = Motes(32, seed=11, region=(0.0, 1.0, 0.25, 0.85))
-        self.peaks: np.ndarray | None = None
-        self.slow: np.ndarray | None = None
-        rng = np.random.default_rng(55)
-        self.trees = [(x, rng.uniform(0.08, 0.17)) for x in rng.uniform(0, 1, 16) if not 0.38 < x < 0.62]
+        self.reset()
 
     def reset(self):
         super().reset()
-        self.peaks = None
-        self.slow = None
+        self._peaks = None
+        self._peak_vel = None
+        self._knobs = [Spring(60, 11) for _ in range(3)]
 
-    def draw(self, target, light, k, frame, s, dt):
-        w, h = target.get_size()
+    def draw(self, layer, frame, settings, dt):
+        w, h = layer.get_size()
         u = min(w, h)
-        pal = palette(s.background)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        playing = self.tick(frame, dt)
-        bass, mid, treble = self.bands3(lv)
-        hy = h * self.horizon
-        glow_on = light if s.glow else None
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        hot = lerp_color(RED, c1, 0.25)
+        levels = self.levels(frame, settings, dt)
 
-        if self.peaks is None or len(self.peaks) != len(lv):
-            self.peaks = lv.copy()
-            self.slow = lv.copy()
-        if playing:
-            self.peaks = np.maximum(self.peaks - dt * 0.6, lv)
-            self.slow += (lv - self.slow) * (1 - 0.15 ** dt)
+        plate = pygame.Rect(int(w * 0.04), int(h * 0.07), int(w * 0.92), int(h * 0.86))
+        faceplate(layer, plate, u)
+        text(layer, "AUDIOVISTA", (plate.x + u * 0.06, plate.y + u * 0.055), u * 0.034, c1,
+             anchor="midleft", serif=True)
+        text(layer, "GRAPHIC SPECTRUM ANALYZER", (plate.x + u * 0.06, plate.y + u * 0.095), u * 0.021,
+             (*CREAM, 170), anchor="midleft")
 
-        target.blit(sky_surface(pal, (w, h), self.horizon), (0, 0))
-        self.stars.draw(target, glow_on, k, w, h, hy, frame.time, pal.stars, treble, u)
-        sx, sy = w * 0.5, hy - h * 0.24
-        self.sun(target, light, k, (sx, sy), u * 0.065 * (1 + 0.05 * bass), pal, 0.6 * bass + 0.4 * frame.beat, u)
-        if light is not None and s.atmosphere:
-            god_rays(light, (sx * k, sy * k), u * 1.1 * k, pal.halo, 0.30 + 0.35 * bass + 0.2 * frame.beat,
-                     self.clock * 0.04, floor=hy * k)
-        self.clouds.draw(target, hy, self.clock, pal)
-        draw_birds(target, w, h, frame.time, lerp(pal.near, sky_at(pal, 0.4), 0.25), u)
+        peak_now = float(levels.max())
+        bass, mid, treble = self.bands3(levels)
+        lr = u * 0.011
+        for i, (lab, on, col) in enumerate((("BASS", clamp01((bass - 0.45) * 3), c1),
+                                             ("BEAT", frame.beat, c2), ("PEAK", clamp01((peak_now - 0.9) * 10), RED))):
+            lamp(layer, plate.right - u * (0.07 + 0.075 * (2 - i)), plate.y + u * 0.06, lr, on, col, lab, u)
 
-        n = 420          # dense sampling keeps the sharp ridges smooth
-        xs = np.linspace(0, 1, n)
-        X = xs * w
-        # The ranges, back to front. Each is only filled down to where the next
-        # one covers it (filling big areas is the expensive part).
-        far_top = hy - h * (0.08 + 0.17 * ridge(xs + self.clock * 0.0015, 101, 5, sharp=0.6))
-        bands_x = np.linspace(0.04, 0.96, len(lv))
-        mid_spec = np.interp(xs, bands_x, self.slow)
-        mid_r = ridge(xs + self.clock * 0.004, 202, 4, sharp=0.4)
-        mid_top = hy - h * (0.02 + 0.09 * mid_r + 0.10 * mid_spec)
-        # front range = the spectrum (bass left, treble right)
-        sigma = 0.9 / len(lv)
-        g = np.exp(-((xs[:, None] - bands_x[None, :]) / sigma) ** 2)
-        spec = (g @ lv) / 1.55
-        detail = ridge(xs, 303, 4, sharp=0.8)
-        base_y = hy + h * 0.07
-        top = base_y - h * (0.04 + 0.05 * detail + 0.36 * np.clip(spec, 0, 1.2) ** 1.2)
-        fg_top = h * (0.93 - 0.06 * ridge(xs, 404, 3))
+        area = pygame.Rect(int(plate.x + plate.w * 0.09), int(plate.y + plate.h * 0.20),
+                           int(plate.w * 0.84), int(plate.h * 0.52))
+        pygame.draw.rect(layer, (10, 10, 15, 255), area.inflate(int(u * 0.02), int(u * 0.02)),
+                         border_radius=int(u * 0.01))
+        cols = int(min(40, max(14, area.w / (u * 0.034))))
+        segs = self.SEGMENTS
+        vals = resample(levels, cols)
+        if self._peaks is None or len(self._peaks) != cols:
+            self._peaks = vals.copy()
+            self._peak_vel = np.zeros(cols)
+        if dt > 0.0015:
+            rising = vals >= self._peaks
+            self._peak_vel = np.where(rising, 0.0, self._peak_vel + 1.4 * dt)
+            self._peaks = np.where(rising, vals, np.maximum(vals, self._peaks - self._peak_vel * dt))
 
-        fill_profile(target, land(pal, 0.15), X, far_top, mid_top.max() + 2)
-        fog(target, hy - h * 0.16, h * 0.16, pal.haze, 0.55)
-        fill_profile(target, land(pal, 0.42), X, mid_top, top.max() + 2)
-        fog(target, hy - h * 0.07, h * 0.12, pal.haze, 0.45)
-        front = land(pal, 0.72)
-        fill_profile(target, front, X, top, fg_top.max() + 2)
-        # rim light along the ridge in the user's colour
-        rim = lerp(front, c1, 0.75)
-        pts = np.column_stack((X, top)).tolist()
-        pygame.draw.aalines(target, rim, False, pts)
-        pygame.draw.aalines(target, rim, False, [(x, y + 1) for x, y in pts])
-        if glow_on is not None:
-            lw = max(1, int(u * k * 0.008))
-            for i in range(0, n - 1, 5):
-                j = min(n - 1, i + 5)
-                e = clamp01(0.25 + spec[i] * 0.9)
-                pygame.draw.line(light, scale(c1, 0.6 * e), (X[i] * k, top[i] * k), (X[j] * k, top[j] * k), lw)
+        col_w = area.w / cols
+        seg_h = area.h / segs
+        gx, gy = max(1, int(col_w * 0.14)), max(1, int(seg_h * 0.16))
+        seg_cols = []
+        for s in range(segs):
+            k = s / (segs - 1)
+            seg_cols.append(lerp_color(c2, c1, k / 0.72) if k < 0.72 else lerp_color(c1, hot, (k - 0.72) / 0.28))
+        for c in range(cols):
+            x = area.x + c * col_w
+            lit = int(round(vals[c] * segs))
+            pk = min(segs - 1, int(self._peaks[c] * segs))
+            for s in range(segs):
+                y = area.bottom - (s + 1) * seg_h
+                col = seg_cols[s]
+                if s < lit:
+                    color = col
+                elif s == pk and pk > 0:
+                    color = lerp_color(col, WHITE, 0.35)
+                else:
+                    color = scale_color(col, 0.13)
+                pygame.draw.rect(layer, color, (int(x + gx), int(y + gy), int(col_w - 2 * gx), int(seg_h - 2 * gy)))
 
-        # peak-hold stars that fall back slowly, every other band
-        peak_tops = np.interp(bands_x, xs, top)
-        col = lerp(c2, (255, 255, 255), 0.35)
-        for i in range(0, len(lv), 2):
-            y = peak_tops[i] - (self.peaks[i] - lv[i]) * h * 0.36 - u * 0.018
-            x = bands_x[i] * w
-            b = clamp01(0.35 + self.peaks[i])
-            aa_circle(target, lerp(sky_at(pal, min(1, y / hy)), col, b), (x, y), max(1.5, u * 0.0035))
-            if glow_on is not None:
-                add_glow(light, (x * k, y * k), u * k * 0.03, c2, b * 0.8)
-
-        # foreground hill with swaying pines
-        fog(target, h * 0.80, h * 0.14, pal.haze, 0.30)
-        near = land(pal, 1.0)
-        fill_profile(target, near, X, fg_top, h)
-        for x, th in self.trees:
-            th *= h
-            by = float(np.interp(x, xs, fg_top)) + 3
-            sway = math.sin(self.clock * 1.3 + x * 7) * th * (0.03 + 0.05 * self.calm)
-            pine(target, x * w, by, th, near, sway)
-
-        if s.atmosphere:
-            self.motes.draw(target, light, k, w, h, self.clock, frame.time, lerp(pal.halo, (255, 255, 255), 0.4),
-                            u, 0.5 + treble)
-
-
-# --------------------------------------------------------------- Lakeside
-
-class LakesideRenderer(SceneRenderer):
-    style = "waveform"
-    horizon = 0.58
-    BUCKETS = 150
-    BUCKET_SECONDS = 0.055
-
-    def __init__(self):
-        super().__init__()
-        self.clouds = CloudLayer(5, seed=8, y_range=(0.05, 0.42), size_range=(0.18, 0.34))
-        self.stars = StarField(180, seed=5)
-        self.flies = Fireflies(36, seed=19, region=(0.0, 1.0, 0.70, 0.96))
-        self.reeds = np.random.default_rng(12).random((26, 4))
-        rng = np.random.default_rng(3)
-        n = 70
-        self.glitter_y = rng.random(n) ** 1.6
-        self.glitter_x = rng.normal(0, 1, n) * (0.03 + 0.12 * self.glitter_y)
-        self.glitter_ph = rng.uniform(0, TAU, n)
-        self.glitter_f = rng.uniform(2, 6, n)
-
-    def envelope(self, t: float, w: int):
-        n, bs = self.BUCKETS, self.BUCKET_SECONDS
-        spacing = w / (n - 4)
-        pos = t / bs
-        first = int(math.floor(pos)) - n // 2 - 1
-        if self.analyzer is None:
-            env = np.zeros(n + 2, np.float32)
-        else:
-            env = self.analyzer.envelope_buckets(first, n + 2, bs)
-        env = np.convolve(np.pad(env, 1, mode="edge"), [0.25, 0.5, 0.25], mode="valid")
-        xs = w / 2 + (np.arange(first, first + n + 2) + 0.5 - pos) * spacing
-        return xs, env
-
-    def draw(self, target, light, k, frame, s, dt):
-        w, h = target.get_size()
-        u = min(w, h)
-        pal = palette(s.background)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        self.tick(frame, dt)
-        bass, mid, treble = self.bands3(lv)
-        hy = int(h * self.horizon)
-        glow_on = light if s.glow else None
-
-        target.blit(sky_surface(pal, (w, h), self.horizon), (0, 0))
-        self.stars.draw(target, glow_on, k, w, h, hy, frame.time, pal.stars, treble, u)
-        sx, sy = w * 0.5, hy - h * 0.05
-        self.sun(target, light, k, (sx, sy), u * 0.07 * (1 + 0.04 * bass), pal, 0.5 * bass + 0.5 * frame.beat, u)
-        if light is not None and s.atmosphere:
-            god_rays(light, (sx * k, sy * k), u * 1.0 * k, pal.halo, 0.25 + 0.3 * bass, self.clock * 0.03,
-                     floor=hy * k, seed=4)
-        self.clouds.draw(target, hy, self.clock, pal)
-        draw_birds(target, w, h, frame.time, lerp(pal.near, sky_at(pal, 0.4), 0.2), u, seed=9)
-
-        # the waveform ribbon, drifting across the sky
-        xs, env = self.envelope(frame.time, w)
-        yc = hy * 0.47
-        amp = h * 0.17 * env * (0.92 + 0.08 * frame.beat) + max(1.5, u * 0.002)
-        sky_c = sky_at(pal, yc / hy)
-        cx = w / 2
-        split = int(np.searchsorted(xs, cx))
-        a_now = float(np.interp(cx, xs, amp))
-        for lo, hi, col, a, edge in ((0, split, c1, 205, lerp(c1, (255, 255, 255), 0.45)),
-                                     (split, len(xs), c2, 95, lerp(sky_c, c2, 0.75))):
-            seg_x = xs[lo:hi].tolist()
-            seg_a = amp[lo:hi].tolist()
-            if lo == 0:
-                seg_x, seg_a = seg_x + [cx], seg_a + [a_now]
-            else:
-                seg_x, seg_a = [cx] + seg_x, [a_now] + seg_a
-            if len(seg_x) < 2:
-                continue
-            upper = [(x, yc - a_) for x, a_ in zip(seg_x, seg_a)]
-            lower = [(x, yc + a_) for x, a_ in zip(seg_x, seg_a)]
-            gfx.filled_polygon(target, upper + lower[::-1], (*col, a))
-            pygame.draw.aalines(target, edge, False, upper)
-            pygame.draw.aalines(target, edge, False, lower)
-        # playhead: a thin column of light joining the ribbon to the sun
-        beam = lerp(sky_c, (255, 250, 236), 0.55)
-        aa_line(target, beam, (cx, yc + a_now + u * 0.01), (cx, sy - u * 0.08), max(1.0, u / 700))
-        for sgn in (-1, 1):
-            aa_circle(target, (255, 252, 240), (cx, yc + sgn * a_now), max(2, u * 0.005))
-        if glow_on is not None:
-            step = max(1, len(xs) // 60)
-            for i in range(0, len(xs), step):
-                x = xs[i]
-                if x < -u * 0.05 or x > w + u * 0.05:
-                    continue
-                played = x < cx
-                add_glow(light, (x * k, yc * k), (amp[i] + u * 0.02) * k * 1.1, c1 if played else c2,
-                         (0.30 if played else 0.12) * (0.4 + env[i]))
-            add_glow(light, (cx * k, yc * k), (a_now + u * 0.05) * k, (255, 245, 225), 0.45 + 0.4 * frame.beat)
-
-        # far shore with a tree line, then everything above is mirrored in the lake
-        shore_h = int(h * 0.11)
-        target.blit(treeline_surface(w, shore_h, land(pal, 0.5), 61, 1.1, 0.4), (0, hy - shore_h + 1))
-        reflect(target, hy, self.clock, pal, u, 0.6 + 0.8 * self.calm)
-        if light is not None:
-            # the sun's long reflection on the water
-            for j in range(6):
-                fy = hy + (h - hy) * (0.05 + j * 0.16)
-                add_glow(light, (sx * k, fy * k), u * k * (0.06 + j * 0.02), pal.halo,
-                         (0.30 - j * 0.04) * (0.6 + 0.4 * bass))
-
-        # glitter on the water under the sun
-        flick = np.clip(np.sin(frame.time * self.glitter_f + self.glitter_ph) * 1.5 - 0.3 + treble, 0, 1)
-        gc = lerp(pal.halo, pal.sun, 0.6)
-        for x, y, f in zip((sx + self.glitter_x * w).tolist(),
-                           (hy + 2 + self.glitter_y * (h - hy) * 0.9).tolist(), flick.tolist()):
-            if f < 0.08:
-                continue
-            ln = u * (0.004 + 0.012 * f) * (0.4 + (y - hy) / (h - hy))
-            gfx.hline(target, int(x - ln), int(x + ln), int(y), (*gc, int(120 * f)))
-            if glow_on is not None and f > 0.5:
-                add_glow(light, (x * k, y * k), u * k * 0.012, pal.halo, f * 0.5)
-
-        # rings spreading across the water on each beat
+        fs = max(7, int(u * 0.02))
+        for db_i, lab in enumerate(("0", "-6", "-12", "-18", "-24", "-30")):
+            y = area.y + area.h * db_i / 5
+            text(layer, lab, (area.x - u * 0.02, y), fs, (*CREAM, 150), anchor="midright")
         if self.analyzer is not None:
-            for age in self.analyzer.recent_beats(frame.time, 3.0).tolist():
-                bt = frame.time - age
-                r_ = np.random.default_rng(int(bt * 1000) % 2_000_000)
-                fx, fy = r_.uniform(0.15, 0.85), r_.uniform(0.1, 0.75)
-                x, y = fx * w, hy + fy * (h - hy)
-                persp = 0.16 + 0.3 * fy
-                fade = 1 - age / 3.0
-                for ring in (1.0, 0.62):
-                    rx = age * u * 0.11 * ring * (0.5 + fy)
-                    if rx < 2:
-                        continue
-                    col = (*lerp(pal.water, (255, 255, 255), 0.55), int(130 * fade * ring))
-                    gfx.aaellipse(target, int(x), int(y), int(rx), max(1, int(rx * persp)), col)
+            freqs = np.exp(resample(np.log(self.analyzer.band_frequencies()), cols))
+            step = max(1, cols // 8)
+            for c in range(0, cols, step):
+                f = freqs[c]
+                lab = f"{f / 1000:.1f}K".replace(".0K", "K") if f >= 1000 else f"{int(round(f, -1 if f > 100 else 0))}"
+                text(layer, lab, (area.x + (c + 0.5) * col_w, area.bottom + u * 0.03), fs, (*CREAM, 150))
+        text(layer, "Hz", (area.right + u * 0.012, area.bottom + u * 0.03), fs, (*CREAM, 120), anchor="midleft")
 
-        self.draw_reeds(target, w, h, u, lerp(pal.near, (0, 0, 0), 0.2))
-        self.flies.draw(target, glow_on, k, w, h, self.clock, 0.3 + 0.7 * treble, frame.beat * 0.5, c1, c2, u, 0.8)
-        if s.atmosphere:
-            fog(target, hy - h * 0.025, h * 0.05, pal.haze, 0.35)
-
-    def draw_reeds(self, target, w, h, u, color):
-        width = max(1.5, u * 0.0035)
-        for i, (fx, fh, fp, fk) in enumerate(self.reeds.tolist()):
-            left = i % 2 == 0
-            x = (fx * 0.16 if left else 1 - fx * 0.16) * w
-            height = h * (0.12 + 0.16 * fh)
-            sway = (math.sin(self.clock * 1.4 + fp * TAU) * 0.6 + math.sin(self.clock * 0.6 + i) * 0.4) \
-                * height * (0.04 + 0.08 * self.calm)
-            tip = (x + sway + (fk - 0.5) * height * 0.25, h - height)
-            mid = (x + sway * 0.35 + (fk - 0.5) * height * 0.08, h - height * 0.5)
-            aa_line(target, color, (x, h + 2), mid, width)
-            aa_line(target, color, mid, tip, width * 0.8)
-            if fk > 0.55:   # a cattail head
-                hx, hy_ = mid[0] + (tip[0] - mid[0]) * 0.75, mid[1] + (tip[1] - mid[1]) * 0.75
-                pygame.draw.ellipse(target, color, (int(hx - width * 1.6), int(hy_ - height * 0.06),
-                                                    max(2, int(width * 3.2)), int(height * 0.12)))
+        values = (frame.volume, bass, treble)
+        names = ("LEVEL", "BASS", "TREBLE")
+        kr = u * 0.035
+        ky = plate.bottom - plate.h * 0.115
+        for i in range(3):
+            v = self._knobs[i].update(values[i], dt)
+            knob(layer, plate.x + plate.w * (0.30 + 0.2 * i), ky, kr, v, c1, names[i], u)
 
 
-# --------------------------------------------------------------- Starlight
+# ------------------------------------------------------------- Tape deck
 
-class StarlightRenderer(SceneRenderer):
-    style = "circular"
-    horizon = 0.80
+class WaveformRenderer(BaseRenderer):
+    """Reel-to-reel tape deck. The real waveform is printed on the moving tape."""
+
+    style = "waveform"
+    BAR_SECONDS = 0.06
 
     def __init__(self):
         super().__init__()
-        self.stars = StarField(1100, seed=7)
-        self.flies = Fireflies(26, seed=23, region=(0.0, 1.0, 0.82, 0.98))
-        self.orbit = [0.0, 2.1, 4.0]
-        self.spin = 0.0
+        self.reset()
 
     def reset(self):
         super().reset()
-        self.orbit = [0.0, 2.1, 4.0]
-        self.spin = 0.0
+        self._ang = [0.0, 0.0, 0.0]    # left reel, right reel, rollers
+        self._vu = [Spring(), Spring()]
 
-    def aurora(self, light, k, hy, mids, c_low, c_high):
-        lw, lh = light.get_size()
-        sw, sh = max(8, lw // 2), max(8, lh // 2)
-        xs = np.linspace(0, 1, sw, dtype=np.float32)[:, None]
-        ys = np.arange(sh, dtype=np.float32)[None, :]
-        t = self.clock
-        base = hy * k / 2 * (0.42 + 0.07 * np.sin(xs * 5.1 + t * 0.25) + 0.04 * np.sin(xs * 11.3 - t * 0.4))
-        curtain = (0.5 + 0.5 * np.sin(xs * 23 + t * 0.7 + 2 * np.sin(xs * 4 - t * 0.3))) ** 2
-        curtain = curtain * (0.35 + 0.65 * (0.5 + 0.5 * np.sin(xs * 3.3 - t * 0.2)))
-        above = base - ys
-        up = np.exp(-np.clip(above, 0, None) / (sh * 0.22)) * (above >= 0)
-        down = np.exp(-np.clip(-above, 0, None) / (sh * 0.012)) * (above < 0)
-        v = (up + down) * curtain * (0.25 + 0.9 * mids)
-        mixk = np.clip(above / (sh * 0.25), 0, 1)[..., None]
-        lo, hi = np.array(c_low, np.float32), np.array(c_high, np.float32)
-        rgb = (lo + (hi - lo) * mixk) * v[..., None] * 0.55
-        add_scaled(light, rgb)
+    def _reel(self, surf, cx, cy, R, pack, hub, angle, accent):
+        aa_circle(surf, (14, 13, 22, 220), (cx, cy), R * 1.01)
+        aa_circle(surf, TAPE, (cx, cy), pack)
+        for k in (0.35, 0.6, 0.82):
+            rr = hub + (pack - hub) * k
+            if rr > hub + 2:
+                aa_circle(surf, (65, 64, 118), (cx, cy), rr, width=1)
+        aa_circle(surf, (75, 75, 134), (cx, cy), pack, width=1)
+        for i in range(3):
+            a = angle + i * 2 * math.pi / 3
+            pts = [(cx + math.cos(a - 0.30) * hub * 1.2, cy + math.sin(a - 0.30) * hub * 1.2),
+                   (cx + math.cos(a - 0.33) * R * 0.96, cy + math.sin(a - 0.33) * R * 0.96),
+                   (cx + math.cos(a + 0.33) * R * 0.96, cy + math.sin(a + 0.33) * R * 0.96),
+                   (cx + math.cos(a + 0.30) * hub * 1.2, cy + math.sin(a + 0.30) * hub * 1.2)]
+            aa_poly(surf, (*METAL, 235), pts)
+            hole = (cx + math.cos(a) * R * 0.62, cy + math.sin(a) * R * 0.62)
+            aa_circle(surf, (*METAL_DARK, 235), hole, R * 0.07)
+        aa_circle(surf, METAL_LIGHT, (cx, cy), R, width=max(2, int(R / 30)))
+        aa_circle(surf, METAL, (cx, cy), hub * 1.25)
+        aa_circle(surf, (30, 29, 44), (cx, cy), hub * 0.55)
+        for i in range(3):
+            a = angle + i * 2 * math.pi / 3 + math.pi / 3
+            aa_line(surf, METAL, (cx + math.cos(a) * hub * 0.2, cy + math.sin(a) * hub * 0.2),
+                    (cx + math.cos(a) * hub * 0.55, cy + math.sin(a) * hub * 0.55), max(2.0, hub * 0.18))
+        aa_circle(surf, (*accent, 255), (cx, cy), hub * 0.15)
 
-    def draw(self, target, light, k, frame, s, dt):
-        w, h = target.get_size()
+    def _roller(self, surf, cx, cy, r, angle, rubber=False):
+        aa_circle(surf, (19, 18, 26) if rubber else METAL_DARK, (cx, cy), r)
+        aa_circle(surf, (36, 34, 49) if rubber else METAL, (cx, cy), r * 0.78)
+        for i in range(3):
+            a = angle + i * 2 * math.pi / 3
+            aa_line(surf, METAL_DARK, (cx, cy), (cx + math.cos(a) * r * 0.7, cy + math.sin(a) * r * 0.7),
+                    max(1.0, r / 7))
+        aa_circle(surf, METAL_LIGHT, (cx, cy), r * 0.2)
+
+    def _counter(self, surf, x, y, digit_w, digit_h, value: float):
+        digits = 4
+        pygame.draw.rect(surf, (9, 9, 13), (x - digit_w * 0.2, y - digit_h * 0.2,
+                                             digit_w * (digits + 0.4), digit_h * 1.4), border_radius=int(digit_h * 0.15))
+        fs = int(digit_h * 0.82)
+        clip = surf.get_clip()
+        for i in range(digits):
+            power = 10 ** (digits - 1 - i)
+            v = value / power
+            d = int(v) % 10
+            if power == 1:
+                roll = v - int(v)
+            else:
+                roll = clamp01((value % power) - (power - 1))   # rolls over during the carry
+            cell = pygame.Rect(int(x + i * digit_w), int(y), int(digit_w * 0.9), int(digit_h))
+            pygame.draw.rect(surf, (236, 224, 200), cell, border_radius=max(1, int(digit_h * 0.08)))
+            surf.set_clip(cell.clip(clip) if clip else cell)
+            off = roll * digit_h
+            text(surf, str(d), (cell.centerx, cell.centery - off), fs, INK)
+            text(surf, str((d + 1) % 10), (cell.centerx, cell.centery - off + digit_h), fs, INK)
+            surf.set_clip(clip)
+            pygame.draw.rect(surf, (0, 0, 0, 70), (cell.x, cell.y, cell.w, cell.h * 0.18))
+            pygame.draw.rect(surf, (0, 0, 0, 70), (cell.x, cell.bottom - cell.h * 0.18, cell.w, cell.h * 0.18))
+
+    def draw(self, layer, frame, settings, dt):
+        w, h = layer.get_size()
         u = min(w, h)
-        pal = night_version(palette(s.background), 0.65)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        playing = self.tick(frame, dt)
-        bass, mid, treble = self.bands3(lv)
-        hy = h * self.horizon
-        glow_on = light if s.glow else None
-        if playing:
-            self.spin += dt * (0.012 + 0.03 * frame.volume)
-            for i, band in enumerate((bass, mid, treble)):
-                self.orbit[i] += dt * (0.25 + 0.5 * i) * (0.35 + 2.2 * band)
-
-        target.blit(sky_surface(pal, (w, h), self.horizon), (0, 0))
-        self.stars.draw(target, glow_on, k, w, h, hy, frame.time, max(pal.stars, 0.6), treble, u,
-                        rotation=self.spin, pole=(w * 0.5, -h * 0.12))
-        if light is not None and s.atmosphere:
-            self.aurora(light, k, hy, mid, c2, c1)
-        self.shooting_stars(target, glow_on, k, w, h, u, frame.time)
-
-        mx, my = w * 0.5, h * 0.40
-        R = u * 0.085 * (1 + 0.04 * bass)
-        orbits = [(R * 2.1, 0.30, c1, bass), (R * 2.9, 0.26, c2, mid), (R * 3.8, 0.22, (255, 246, 228), treble)]
-        # orbit paths, and the planets that are behind the moon
-        for (rx, sq, col, band), ang in zip(orbits, self.orbit):
-            gfx.aaellipse(target, int(mx), int(my), int(rx), int(rx * sq), (*lerp(col, (255, 255, 255), 0.3), 50))
-            if math.sin(ang) < 0:
-                self.planet(target, glow_on, k, mx, my, rx, sq, ang, col, band, u)
-
-        # radial spectrum crown (mirrored: bass at the top, treble at the bottom)
-        n = len(lv)
-        r0 = R * 1.32
-        half_w = r0 * math.pi / (2 * n) * 0.8
-        for side in (-1, 1):
-            for i in range(n):
-                a = -math.pi / 2 + side * (i + 0.5) / n * math.pi
-                L = (0.015 + lv[i]) * u * 0.20
-                ca, sa = math.cos(a), math.sin(a)
-                col = lerp(c1, c2, i / (n - 1))
-                b0 = (mx + ca * r0 - sa * half_w, my + sa * r0 + ca * half_w)
-                b1 = (mx + ca * r0 + sa * half_w, my + sa * r0 - ca * half_w)
-                tip = (mx + ca * (r0 + L), my + sa * (r0 + L))
-                aa_poly(target, (*col, 215), [b0, tip, b1])
-                if glow_on is not None and i % 2 == 0:
-                    pygame.draw.line(light, scale(col, 0.15 + 0.4 * lv[i]), (b0[0] * k, b0[1] * k),
-                                     (tip[0] * k, tip[1] * k), max(1, int(u * k * 0.006)))
-
-        # halo rings
-        for rr, a in ((R * 1.18, 120), (R * 1.75 + frame.beat * R * 0.25, 70)):
-            gfx.aacircle(target, int(mx), int(my), int(rr), (*lerp(pal.halo, (255, 255, 255), 0.5),
-                                                             int(a * (0.6 + 0.4 * frame.beat))))
-        self.sun(target, light, k, (mx, my), R * 1.22, pal, 0.5 * bass + 0.5 * frame.beat, u)
-        if glow_on is not None:
-            add_glow(light, (mx * k, my * k), R * 4.5 * k, c1, 0.08 + 0.22 * frame.beat)
-
-        for (rx, sq, col, band), ang in zip(orbits, self.orbit):
-            if math.sin(ang) >= 0:
-                self.planet(target, glow_on, k, mx, my, rx, sq, ang, col, band, u)
-
-        # ground: hills, a lone tree and a cabin with a warm window
-        xs = np.linspace(0, 1, 140)
-        X = xs * w
-        back = hy - h * (0.02 + 0.06 * ridge(xs, 77, 3))
-        front = h * (0.90 - 0.07 * ridge(xs, 88, 3)) - h * 0.05 * np.exp(-((xs - 0.78) / 0.12) ** 2)
-        fill_profile(target, land(pal, 0.55), X, back, front.max() + 2)
-        if s.atmosphere:
-            fog(target, hy - h * 0.06, h * 0.08, pal.haze, 0.4)
-        near = land(pal, 1.0)
-        fill_profile(target, near, X, front, h)
-        tx = 0.80
-        ty = float(np.interp(tx, xs, front)) + 3
-        sway = math.sin(self.clock * 1.1) * h * 0.006 * (0.4 + self.calm)
-        round_tree(target, tx * w, ty, h * 0.2, near, sway, seed=5)
-        self.cabin(target, light, k, 0.20 * w, float(np.interp(0.20, xs, front)) + 2, u, near, frame)
-        self.flies.draw(target, glow_on, k, w, h, self.clock, 0.4 + 0.6 * treble, frame.beat * 0.4, c1, c2, u, 0.7)
-
-    def planet(self, target, light, k, mx, my, rx, sq, ang, col, band, u):
-        x, y = mx + math.cos(ang) * rx, my + math.sin(ang) * rx * sq
-        r = u * (0.006 + 0.008 * band)
-        aa_circle(target, lerp(col, (255, 255, 255), 0.35), (x, y), r)
-        if light is not None:
-            add_glow(light, (x * k, y * k), (r * 4 + u * 0.02) * k, col, 0.5 + 0.5 * band)
-
-    def cabin(self, target, light, k, x, base, u, color, frame):
-        cw, ch = u * 0.075, u * 0.045
-        pygame.draw.rect(target, color, (int(x - cw / 2), int(base - ch), int(cw), int(ch) + 2))
-        aa_poly(target, color, [(x - cw * 0.62, base - ch + 1), (x, base - ch - cw * 0.42),
-                                (x + cw * 0.62, base - ch + 1)])
-        pygame.draw.rect(target, color, (int(x + cw * 0.18), int(base - ch - cw * 0.42), int(cw * 0.12),
-                                         int(cw * 0.3)))
-        flicker = 0.85 + 0.15 * math.sin(frame.time * 9.0) * math.sin(frame.time * 3.7)
-        warm = scale((255, 196, 120), flicker)
-        win = pygame.Rect(int(x - cw * 0.28), int(base - ch * 0.72), int(cw * 0.2), int(ch * 0.34))
-        pygame.draw.rect(target, warm, win)
-        pygame.draw.line(target, color, win.midtop, win.midbottom, max(1, int(u / 600)))
-        if light is not None:
-            add_glow(light, (win.centerx * k, win.centery * k), u * k * 0.09, (255, 170, 90), 0.5 * flicker)
-
-    def shooting_stars(self, target, light, k, w, h, u, t):
-        if self.analyzer is None:
-            return
-        for age in self.analyzer.recent_beats(t, 1.0).tolist():
-            bt = t - age
-            rng = np.random.default_rng(int(bt * 997) % 3_000_000)
-            if rng.random() > 0.35:
-                continue
-            x0, y0 = rng.uniform(0.1, 0.9) * w, rng.uniform(0.04, 0.3) * h
-            a = rng.uniform(2.55, 2.85) if x0 > w / 2 else rng.uniform(0.3, 0.6)
-            prog = age / 0.85
-            if prog >= 1:
-                continue
-            L = u * 0.45
-            dx, dy = math.cos(a), math.sin(a)
-            hx, hy_ = x0 + dx * L * prog, y0 + dy * L * prog
-            tail = u * 0.13 * (1 - 0.4 * prog)
-            fade = math.sin(prog * math.pi)
-            for j in range(5):
-                f0, f1 = j / 5, (j + 1) / 5
-                aa_line(target, (255, 250, 240, int(230 * fade * (1 - f0))),
-                        (hx - dx * tail * f0, hy_ - dy * tail * f0), (hx - dx * tail * f1, hy_ - dy * tail * f1),
-                        max(1.0, u / 700 * (1.6 - f0)))
-            if light is not None:
-                add_glow(light, (hx * k, hy_ * k), u * k * 0.03, (220, 230, 255), fade)
-
-
-# ---------------------------------------------------------------- Windmills
-
-def windmill(surf, x, base, height, angle, body, sail, trim, u) -> None:
-    """A tower windmill with four lattice sails at *angle*."""
-    tb, tt = height * 0.15, height * 0.085
-    top = base - height
-    aa_poly(surf, body, [(x - tb, base + 2), (x - tt, top), (x + tt, top), (x + tb, base + 2)])
-    aa_poly(surf, body, [(x - tt * 1.35, top + 1), (x, top - height * 0.12), (x + tt * 1.35, top + 1)])
-    door_w = tb * 0.55
-    pygame.draw.rect(surf, lerp(body, (0, 0, 0), 0.35),
-                     (int(x - door_w / 2), int(base - height * 0.16), max(1, int(door_w)), int(height * 0.16)))
-    hub = (x, top - height * 0.01)
-    L = height * 0.78
-    spar_w = max(1.0, height * 0.018)
-    for i in range(4):
-        a = angle + i * math.pi / 2
-        ca, sa = math.cos(a), math.sin(a)
-
-        def P(r, off):
-            return (hub[0] + ca * r - sa * off, hub[1] + sa * r + ca * off)
-
-        quad = [P(L * 0.16, 0), P(L, 0), P(L, L * 0.17), P(L * 0.16, L * 0.12)]
-        gfx.filled_polygon(surf, quad, (*sail, 170))
-        pygame.draw.aalines(surf, trim, True, quad)
-        for f in (0.37, 0.58, 0.79):
-            pygame.draw.aaline(surf, trim, P(L * f, 0), P(L * f, L * (0.12 + 0.05 * (f - 0.16) / 0.84)))
-        aa_line(surf, trim, hub, P(L * 1.02, 0), spar_w)
-    aa_circle(surf, trim, hub, max(2, height * 0.035))
-
-
-class WindmillsRenderer(SceneRenderer):
-    style = "meters"
-    horizon = 0.60
-
-    def __init__(self):
-        super().__init__()
-        self.clouds = CloudLayer(7, seed=33, y_range=(0.05, 0.5), size_range=(0.16, 0.34))
-        self.stars = StarField(160, seed=13)
-        self.motes = Motes(40, seed=15, region=(0.0, 1.0, 0.3, 0.9))
-        self.grass = Grass(120, seed=41, width=1.25)
-        self.angles = [0.0, 1.0, 2.0]
-        self.flowers = np.random.default_rng(42).random((38, 3))
-
-    def reset(self):
-        super().reset()
-        self.angles = [0.0, 1.0, 2.0]
-
-    def draw(self, target, light, k, frame, s, dt):
-        w, h = target.get_size()
-        u = min(w, h)
-        pal = palette(s.background)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        playing = self.tick(frame, dt)
-        bass, mid, treble = self.bands3(lv)
-        hy = h * self.horizon
-        glow_on = light if s.glow else None
-        if playing:
-            for i, band in enumerate((treble, mid, bass)):
-                self.angles[i] += dt * (0.25 + 5.5 * band ** 1.3) * (1.25 - 0.15 * i)
-
-        target.blit(sky_surface(pal, (w, h), self.horizon), (0, 0))
-        self.stars.draw(target, glow_on, k, w, h, hy, frame.time, pal.stars, treble, u)
-        # the sun (or moon) crosses the sky over the course of the song
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        playing = dt > 0.0015
+        levels = self.levels(frame, settings, dt)
         dur = self.analyzer.duration if self.analyzer is not None else 1.0
         p = clamp01(frame.time / max(dur, 1e-6))
-        arc = 0.06 + 0.88 * p
-        sx, sy = w * arc, hy - math.sin(math.pi * arc) * hy * 0.66
-        self.sun(target, light, k, (sx, sy), u * 0.055 * (1 + 0.05 * bass), pal, 0.5 * bass + 0.5 * frame.beat, u)
-        if light is not None and s.atmosphere:
-            god_rays(light, (sx * k, sy * k), u * 1.1 * k, pal.halo, 0.16 + 0.22 * bass + 0.12 * frame.beat,
-                     self.clock * 0.05, floor=hy * k, seed=12)
-        self.clouds.draw(target, hy, self.clock * (1 + 0.6 * self.calm), pal)
-        draw_birds(target, w, h, frame.time, lerp(pal.near, sky_at(pal, 0.4), 0.25), u, seed=3)
 
-        xs = np.linspace(0, 1, 360)
-        X = xs * w
-        mtn = hy - h * (0.04 + 0.16 * ridge(xs + self.clock * 0.001, 505, 5, sharp=0.5))
-        hill1 = hy - h * (0.01 + 0.07 * ridge(xs + self.clock * 0.003, 606, 3))
-        hill2 = h * (0.75 - 0.10 * ridge(xs, 707, 3))
-        hill3 = h * (0.92 - 0.07 * ridge(xs, 808, 3)) - h * 0.10 * np.exp(-((xs - 0.84) / 0.16) ** 2)
-        fill_profile(target, land(pal, 0.12), X, mtn, hill1.max() + 2)
-        fog(target, hy - h * 0.12, h * 0.14, pal.haze, 0.55)
+        plate = pygame.Rect(int(w * 0.03), int(h * 0.05), int(w * 0.94), int(h * 0.90))
+        faceplate(layer, plate, u)
 
-        # rolling hills, with the far windmill (treble)
-        col1 = grassy(pal, 0.40, 0.35)
-        fill_profile(target, col1, X, hill1, hill2.max() + 2)
-        self.mill(target, 0.70, xs, hill1, w, h * 0.16, self.angles[0], col1, pal, c1, u, 0.40)
-        fog(target, hy - h * 0.01, h * 0.10, pal.haze, 0.35)
+        R = min(w * 0.165, h * 0.25)
+        cy = plate.y + R + h * 0.06
+        lx, rx = w * 0.235, w * 0.765
+        hub, full = R * 0.26, R * 0.93
+        pack_l = math.sqrt(hub ** 2 + (full ** 2 - hub ** 2) * (1 - p))
+        pack_r = math.sqrt(hub ** 2 + (full ** 2 - hub ** 2) * p)
+        tape_speed = R * 2.2
+        if playing:   # constant tape speed: the emptier reel spins faster
+            self._ang[0] += tape_speed / pack_l * dt
+            self._ang[1] += tape_speed / pack_r * dt
 
-        # middle hill, windmill driven by the mids
-        col2 = grassy(pal, 0.68, 0.4)
-        fill_profile(target, col2, X, hill2, hill3.max() + 2)
-        self.mill(target, 0.26, xs, hill2, w, h * 0.27, self.angles[1], col2, pal, c1, u, 0.68)
-        pygame.draw.aalines(target, lerp(col2, pal.halo, 0.35), False, np.column_stack((X, hill2)).tolist())
+        strip = pygame.Rect(int(w * 0.10), int(plate.y + plate.h * 0.68), int(w * 0.80), int(h * 0.13))
+        roller_r = strip.h * 0.42
+        if playing:
+            self._ang[2] += tape_speed / max(roller_r, 1) * dt
 
-        # foreground meadow with the big windmill (bass), grass and flowers
-        col3 = grassy(pal, 0.95, 0.35)
-        fill_profile(target, col3, X, hill3, h)
-        self.mill(target, 0.84, xs, hill3, w, h * 0.42, self.angles[2], col3, pal, c1, u, 0.95)
-        base = np.interp(self.grass.x, xs, hill3)
-        self.grass.draw(target, w, base, h * 0.07, self.clock, 0.3 + 0.7 * self.calm + 0.3 * frame.beat,
-                        col3, lerp(col3, pal.grass, 0.5), u, rim=lerp(pal.grass, pal.halo, 0.5))
-        for fx, fh, fc in self.flowers.tolist():
-            x = fx * w
-            y = float(np.interp(fx, xs, hill3)) - h * 0.03 * (0.4 + fh) \
-                + math.sin(self.clock * 1.7 - fx * 9) * u * 0.002
-            col = c1 if fc < 0.5 else c2
-            aa_circle(target, lerp(col, (255, 255, 255), 0.25), (x, y), max(1.5, u * 0.0035))
-            if glow_on is not None and fc > 0.7:
-                add_glow(light, (x * k, y * k), u * k * 0.015, col, 0.3 + 0.5 * treble)
+        tape_w = max(2.0, u / 120)
+        aa_line(layer, TAPE, (lx - pack_l, cy), (strip.x - roller_r, strip.centery), tape_w)
+        aa_line(layer, TAPE, (rx + pack_r, cy), (strip.right + roller_r, strip.centery), tape_w)
 
-        if s.atmosphere:
-            self.motes.draw(target, light, k, w, h, self.clock, frame.time, lerp(pal.halo, (255, 255, 255), 0.4),
-                            u, 0.5 + treble)
+        self._reel(layer, lx, cy, R, pack_l, hub, self._ang[0], c1)
+        self._reel(layer, rx, cy, R, pack_r, hub, self._ang[1], c1)
 
-    @staticmethod
-    def mill(target, fx, xs, hill, w, height, angle, ground, pal, accent, u, depth):
-        base = float(np.interp(fx, xs, hill)) + height * 0.02
-        body = lerp(ground, lerp(pal.haze, (238, 226, 210), 0.5), 0.35 + 0.25 * depth)
-        sail = lerp(body, (250, 244, 232), 0.5)
-        trim = lerp(body, lerp(accent, (60, 40, 30), 0.3), 0.55)
-        windmill(target, fx * w, base, height, angle, body, sail, trim, u)
+        gap_l, gap_r = lx + R + u * 0.03, rx - R - u * 0.03
+        mw = max(20, gap_r - gap_l)
+        mh = min(mw * 0.56, R * 0.85)
+        bass, mid, treble = self.bands3(levels)
+        targets = (clamp01(0.55 * bass + 0.45 * mid) * 1.05 * (0.5 + 0.5 * frame.volume) + 0.05,
+                   clamp01(0.5 * mid + 0.5 * treble * 1.4) * 1.05 * (0.5 + 0.5 * frame.volume) + 0.05)
+        below = strip.y - (cy + R) - u * 0.05           # free space under the reels
+        side_by_side = below > mh * 1.15                # squarer canvases: meters go there, bigger
+        if side_by_side:
+            mh = min(below * 0.86, w * 0.36 * 0.56)
+            mw = mh / 0.56
+        for i, lab in enumerate(("LEFT", "RIGHT")):
+            pos = self._vu[i].update(targets[i], dt)
+            if side_by_side:
+                x = w / 2 - mw - u * 0.03 if i == 0 else w / 2 + u * 0.03
+                y = cy + R + (strip.y - (cy + R) - mh) / 2 - u * 0.02
+                rect = pygame.Rect(int(x), int(y), int(mw), int(mh))
+            else:
+                rect = pygame.Rect(int(gap_l), int(cy - mh - u * 0.012 + i * (mh + u * 0.024)), int(mw), int(mh))
+            draw_vu(layer, rect, pos, lab, targets[i])
+
+        band = strip.inflate(0, -int(strip.h * 0.36))
+        pygame.draw.rect(layer, TAPE, band)
+        pygame.draw.line(layer, (79, 79, 141), band.topleft, band.topright, max(1, int(u / 400)))
+        pygame.draw.line(layer, (31, 29, 58), band.bottomleft, band.bottomright, max(1, int(u / 400)))
+        cx = strip.centerx
+        if self.analyzer is not None:
+            spacing = max(3.0, u / 95)
+            bar_w = max(1, int(spacing * 0.5))
+            d = self.BAR_SECONDS
+            half = int((strip.w / 2) / spacing) + 2
+            first = int(math.floor(frame.time / d)) - half
+            env = self.analyzer.envelope_buckets(first, 2 * half + 2, d) ** (0.8 / settings.sensitivity)
+            clip = layer.get_clip()
+            layer.set_clip(band)
+            for i, v in enumerate(env):
+                j = first + i
+                x = cx - (j * d - frame.time) / d * spacing     # tape runs left -> right
+                bh = max(2, v * band.h * 0.92)
+                played = (j + 1) * d <= frame.time
+                col = lerp_color(c1, WHITE, 0.15) if played else scale_color(lerp_color(c2, TAPE, 0.35), 0.9)
+                pygame.draw.rect(layer, col, (int(x - bar_w / 2), int(band.centery - bh / 2), bar_w, int(bh)))
+            layer.set_clip(clip)
+        for x in (strip.x, strip.right):
+            self._roller(layer, x, strip.centery, roller_r, self._ang[2])
+
+        head = pygame.Rect(0, 0, int(u * 0.06), int(strip.h * 1.05))
+        head.center = (cx, strip.centery)
+        pygame.draw.rect(layer, METAL, head, border_radius=int(u * 0.008))
+        pygame.draw.rect(layer, METAL_LIGHT, head.inflate(-head.w * 0.5, -head.h * 0.3), border_radius=int(u * 0.005))
+        gap_col = lerp_color((40, 36, 67), c1, 0.4 + 0.6 * frame.beat) if playing else (40, 36, 67)
+        pygame.draw.rect(layer, gap_col, (cx - max(1, u / 600), head.y + head.h * 0.15, max(2, u / 300), head.h * 0.7))
+        text(layer, "PLAYBACK", (cx, head.bottom + u * 0.022), u * 0.018, (*CREAM, 170))
+        self._roller(layer, cx + u * 0.10, strip.centery, strip.h * 0.20, -self._ang[2] * 2.2)
+        self._roller(layer, cx + u * 0.10, strip.y - strip.h * 0.18, strip.h * 0.24, self._ang[2] * 1.8, rubber=True)
+
+        dh = u * 0.05
+        self._counter(layer, strip.x, strip.bottom + u * 0.045, dh * 0.7, dh, frame.time)
+        text(layer, "TAPE COUNTER", (strip.x, strip.bottom + u * 0.03), u * 0.017, (*CREAM, 150), anchor="midleft")
+        kw, kh = u * 0.075, u * 0.05
+        kx = strip.right - 4 * (kw + u * 0.012)
+        ky = strip.bottom + u * 0.045
+        for i, (name, active) in enumerate((("rew", False), ("play", playing), ("ff", False), ("stop", not playing))):
+            down = u * 0.006 if active else 0
+            key = pygame.Rect(int(kx + i * (kw + u * 0.012)), int(ky + down), int(kw), int(kh))
+            pygame.draw.rect(layer, (12, 11, 17), key.move(0, int(u * 0.006 - down)), border_radius=int(u * 0.008))
+            pygame.draw.rect(layer, lerp_color(METAL, c1, 0.55) if active else METAL, key, border_radius=int(u * 0.008))
+            ic, s = key.center, kh * 0.22
+            if name == "play":
+                aa_poly(layer, INK, [(ic[0] - s, ic[1] - s), (ic[0] - s, ic[1] + s), (ic[0] + s, ic[1])])
+            elif name == "stop":
+                pygame.draw.rect(layer, INK, (ic[0] - s * 0.9, ic[1] - s * 0.9, s * 1.8, s * 1.8))
+            else:
+                dsign = 1 if name == "ff" else -1
+                for off in (-0.55, 0.55):
+                    ox = ic[0] + off * s
+                    aa_poly(layer, INK, [(ox - dsign * s * 0.6, ic[1] - s * 0.8), (ox - dsign * s * 0.6, ic[1] + s * 0.8),
+                                         (ox + dsign * s * 0.6, ic[1])])
 
 
-# ---------------------------------------------------------------- Fireflies
+# ------------------------------------------------------------- Turntable
 
-class FirefliesRenderer(SceneRenderer):
-    style = "particles"
-    horizon = 0.66
+_records: dict = {}
+_wood: dict = {}
+
+
+def wood_surface(size: tuple[int, int]) -> pygame.Surface:
+    """Walnut wood-grain plinth texture (cached)."""
+    surf = _wood.get(size)
+    if surf is None:
+        w, h = size
+        xx, yy = np.mgrid[0:w, 0:h].astype(np.float32)
+        grain = (np.sin(yy / h * 90 + np.sin(xx / w * 7) * 2.5 + np.sin(xx / w * 31) * 0.4) * 0.5 + 0.5)
+        fine = np.sin(yy / h * 520 + xx / w * 3) * 0.5 + 0.5
+        k = (0.65 * grain + 0.35 * fine)[..., None]
+        dark = np.array((33, 31, 64), np.float32)
+        light = np.array((46, 43, 84), np.float32)
+        rgb = dark + (light - dark) * k
+        surf = pygame.Surface(size, pygame.SRCALPHA)
+        surf.blit(pygame.surfarray.make_surface(rgb.astype(np.uint8)), (0, 0))
+        mask = pygame.Surface(size, pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=int(min(w, h) * 0.04))
+        surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+        if len(_wood) > 6:
+            _wood.clear()
+        _wood[size] = surf
+    return surf
+
+
+def record_surface(radius: int) -> pygame.Surface:
+    """Black vinyl with grooves and a fixed light sheen (cached)."""
+    surf = _records.get(radius)
+    if surf is None:
+        size = 2 * radius + 2
+        xx, yy = np.mgrid[0:size, 0:size].astype(np.float32)
+        dx, dy = xx - size / 2, yy - size / 2
+        d = np.sqrt(dx ** 2 + dy ** 2) / radius
+        theta = np.arctan2(dy, dx)
+        grooves = (np.sin(d * radius * 1.4) * 0.5 + 0.5) * ((d > 0.36) & (d < 0.95))
+        sheen = (np.abs(np.cos(theta - 0.8)) ** 14) * ((d > 0.36) & (d < 0.97)) * 52
+        v = 16 + grooves * 9 + sheen
+        rgb = np.stack([v + 2, v, v - 1], axis=-1)
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        surf.blit(pygame.surfarray.make_surface(np.clip(rgb, 0, 255).astype(np.uint8)), (0, 0))
+        pygame.surfarray.pixels_alpha(surf)[:] = (np.clip((1.0 - d) * radius, 0, 1) * 255).astype(np.uint8)
+        if len(_records) > 8:
+            _records.clear()
+        _records[radius] = surf
+    return surf
+
+
+def label_surface(radius: int, c1, c2, title: str) -> pygame.Surface:
+    key = ("label", radius, c1, c2, title)
+    surf = _records.get(key)
+    if surf is None:
+        size = 2 * radius + 2
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        c = (radius + 1, radius + 1)
+        aa_circle(surf, scale_color(c1, 0.85), c, radius)
+        aa_circle(surf, c1, c, radius * 0.94)
+        aa_circle(surf, (*CREAM, 200), c, radius * 0.84, width=max(1, radius // 60))
+        name = title if len(title) <= 26 else title[:25] + "…"
+        text(surf, "AUDIOVISTA", (c[0], c[1] - radius * 0.58), radius * 0.13, INK, serif=True)
+        text(surf, name, (c[0], c[1] - radius * 0.32), radius * 0.12, INK)
+        text(surf, "33 1/3 RPM", (c[0], c[1] + radius * 0.38), radius * 0.11, INK)
+        text(surf, "SIDE A  ·  STEREO", (c[0], c[1] + radius * 0.58), radius * 0.08, (*INK, 200))
+        aa_circle(surf, (*c2, 255), (c[0] - radius * 0.45, c[1] + radius * 0.05), radius * 0.05)
+        aa_circle(surf, (*c2, 255), (c[0] + radius * 0.45, c[1] + radius * 0.05), radius * 0.05)
+        _records[key] = surf
+    return surf
+
+
+class CircularRenderer(BaseRenderer):
+    """Turntable: record, label, strobe dots, glowing grooves and a tracking tonearm."""
+
+    style = "circular"
+    RPM = 33.333
 
     def __init__(self):
         super().__init__()
-        self.stars = StarField(220, seed=29)
-        self.flies = Fireflies(120, seed=17, region=(0.0, 1.0, 0.22, 0.95))
-        self.grass = Grass(150, seed=37, width=1.5)
-        self.bokeh = np.random.default_rng(91).random((16, 5))
+        self.reset()
 
-    def draw(self, target, light, k, frame, s, dt):
+    def reset(self):
+        super().reset()
+        self._angle = 0.0
+        self._fader = Spring(40, 9)
+        self._bob = Spring(260, 9)
+
+    @staticmethod
+    def _geometry(w, h):
+        plinth = pygame.Rect(int(w * 0.03), int(h * 0.05), int(w * 0.94), int(h * 0.90))
+        P = min(w * 0.31, h * 0.355)
+        return plinth, P, plinth.x + plinth.w * 0.42, plinth.centery
+
+    def draw_backdrop(self, target, frame, settings, dt):
         w, h = target.get_size()
         u = min(w, h)
-        pal = night_version(palette(s.background), 0.45)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        self.tick(frame, dt)
-        bass, mid, treble = self.bands3(lv)
-        hy = h * self.horizon
-        glow_on = light if s.glow else None
+        plinth, P, cx, cy = self._geometry(w, h)
+        target.blit(wood_surface(plinth.size), plinth)
+        pygame.draw.rect(target, (17, 16, 33), plinth, max(1, int(u / 250)), border_radius=int(u * 0.04))
+        aa_circle(target, (17, 16, 24), (cx, cy), P * 1.01)
+        aa_circle(target, METAL, (cx, cy), P)
+        aa_circle(target, METAL_DARK, (cx, cy), P * 0.955)
+        rec = record_surface(int(P * 0.94))
+        target.blit(rec, rec.get_rect(center=(int(cx), int(cy))))
 
-        target.blit(sky_surface(pal, (w, h), self.horizon), (0, 0))
-        self.stars.draw(target, glow_on, k, w, h, hy, frame.time, max(pal.stars, 0.35), treble, u)
-        if pal.moon:
-            self.sun(target, light, k, (w * 0.82, h * 0.16), u * 0.04, pal, 0.3 * frame.beat, u)
-        elif light is not None:
-            add_glow(light, (w * 0.5 * k, hy * k), u * 0.7 * k, pal.halo, 0.45 + 0.2 * bass, power=2.4)
+    def draw(self, layer, frame, settings, dt):
+        w, h = layer.get_size()
+        u = min(w, h)
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        playing = dt > 0.0015
+        levels = self.levels(frame, settings, dt)
+        dur = self.analyzer.duration if self.analyzer is not None else 1.0
+        p = clamp01(frame.time / max(dur, 1e-6))
+        if playing:
+            self._angle += dt * 2 * math.pi * self.RPM / 60
+        plinth, P, cx, cy = self._geometry(w, h)
 
-        # out-of-focus lights drifting in the distance
-        if light is not None and s.atmosphere:
-            for i, (bx, by, br, bs, bc) in enumerate(self.bokeh.tolist()):
-                x = ((bx + self.clock * (0.004 + 0.01 * bs)) % 1.2 - 0.1) * w
-                y = (0.15 + 0.6 * by) * h + math.sin(self.clock * 0.5 + i) * u * 0.02
-                col = (c1, c2, pal.halo)[int(bc * 3) % 3]
-                add_glow(light, (x * k, y * k), u * k * (0.03 + 0.06 * br), col,
-                         (0.10 + 0.16 * mid) * (0.6 + 0.4 * math.sin(self.clock * 0.8 + i * 1.7)), power=0)
+        # spectrum light ring around the platter
+        n = 120
+        half = resample(levels, n // 2)
+        ring = np.concatenate([half, half[::-1]])
+        for i, v in enumerate(ring):
+            a = 2 * math.pi * i / n - math.pi / 2
+            r0, r1 = P * 1.035, P * 1.035 + (0.006 + v * 0.07) * u
+            col = mix((40, 38, 78), lerp_color(c2, c1, v), 0.5 + 0.5 * v)
+            aa_line(layer, col, (cx + math.cos(a) * r0, cy + math.sin(a) * r0),
+                    (cx + math.cos(a) * r1, cy + math.sin(a) * r1), max(1.5, P * 2 * math.pi / n * 0.45))
 
-        tl_h = int(h * 0.16)
-        target.blit(treeline_surface(w, tl_h, land(pal, 0.45), 71, 1.4, 0.3), (0, int(hy - tl_h + 2)))
-        fog(target, hy - h * 0.05, h * 0.09, pal.haze, 0.5)
-        xs = np.linspace(0, 1, 140)
-        meadow = hy + h * (0.06 - 0.05 * ridge(xs, 99, 3))
-        near_meadow = h * (0.86 - 0.05 * ridge(xs + 0.3, 98, 3))
-        fill_profile(target, land(pal, 0.62), xs * w, meadow, near_meadow.max() + 2)
-        if s.atmosphere:
-            fog(target, hy + h * 0.02, h * 0.10, pal.haze, 0.22)
-        fill_profile(target, land(pal, 0.86), xs * w, near_meadow, h)
+        # rotating strobe dots on the platter rim
+        dots = 90
+        for i in range(dots):
+            a = self._angle + 2 * math.pi * i / dots
+            col = METAL_LIGHT if i % 2 == 0 else (133, 128, 168)
+            aa_circle(layer, col, (cx + math.cos(a) * P * 0.977, cy + math.sin(a) * P * 0.977), max(1.0, P * 0.009))
 
-        # foreground grass: blade height follows the spectrum (bass left, treble right)
-        band = np.clip((self.grass.x * len(lv)).astype(int), 0, len(lv) - 1)
-        heights = h * (0.05 + 0.30 * lv[band] ** 1.1) * self.grass.h
-        near = land(pal, 1.0)
-        pygame.draw.rect(target, near, (0, int(h * 0.96), w, h - int(h * 0.96) + 1))
-        self.grass.draw(target, w, h * 0.965, 0, self.clock, 0.3 + 0.7 * self.calm, near,
-                        lerp(near, c1, 0.3), u, heights=heights, rim=c1, rim_levels=lv[band])
+        rec_r = int(P * 0.94)
 
-        activity = clamp01(0.25 * frame.volume + 0.85 * treble)
-        self.flies.draw(target, glow_on, k, w, h, self.clock, activity, frame.beat, c1, c2, u)
+        # grooves light up with the spectrum: bass near the label, treble at the edge
+        rings = 26
+        vals = resample(levels, rings)
+        for i, v in enumerate(vals):
+            if v < 0.08:
+                continue
+            rr = rec_r * (0.40 + 0.53 * i / (rings - 1))
+            col = lerp_color(c1, c2, i / (rings - 1))
+            aa_circle(layer, mix((20, 19, 26), col, 0.8 * v), (cx, cy), rr, width=1)
 
-        # a couple of big, blurry fireflies right in front of the lens
-        if light is not None and s.atmosphere:
-            for i in range(3):
-                x = (0.15 + 0.35 * i + 0.06 * math.sin(self.clock * 0.23 + i * 2)) * w
-                y = (0.55 + 0.25 * math.sin(self.clock * 0.17 + i * 1.3)) * h
-                b = clamp01(math.sin(self.clock * 0.6 + i * 2.2) * 1.2 + 0.2) * (0.5 + 0.5 * activity)
-                add_glow(light, (x * k, y * k), u * k * 0.07, c1 if i % 2 else c2, 0.22 * b, power=0)
+        lab_r = int(P * 0.33)
+        label = label_surface(lab_r, c1, c2, self.title or "Now Playing")
+        rot = pygame.transform.rotozoom(label, -math.degrees(self._angle), 1.0)
+        layer.blit(rot, rot.get_rect(center=(int(cx), int(cy))))
+        aa_circle(layer, METAL_LIGHT, (cx, cy), P * 0.025)
+        aa_circle(layer, METAL_DARK, (cx, cy), P * 0.012)
+
+        # tonearm: needle radius moves inward as the song plays
+        pivot = (cx + P * 1.22, cy - P * 0.80)
+        bob = self._bob.update(frame.bass * 0.004 * P, dt)
+        r_needle = P * (0.88 - 0.50 * p)
+        arm_len = P * 1.15
+        dx, dy = pivot[0] - cx, pivot[1] - cy
+        dist = math.hypot(dx, dy)
+        a = (r_needle ** 2 - arm_len ** 2 + dist ** 2) / (2 * dist)
+        hh = math.sqrt(max(r_needle ** 2 - a ** 2, 0))
+        bx, by = cx + a * dx / dist, cy + a * dy / dist
+        cands = [(bx + hh * dy / dist, by - hh * dx / dist), (bx - hh * dy / dist, by + hh * dx / dist)]
+        needle = max(cands, key=lambda q: q[1])
+        needle = (needle[0], needle[1] + bob)
+        ux, uy = (needle[0] - pivot[0]) / arm_len, (needle[1] - pivot[1]) / arm_len
+        elbow = (pivot[0] + ux * arm_len * 0.82, pivot[1] + uy * arm_len * 0.82)
+        tube = max(2.0, P * 0.028)
+        blend_poly(layer, (0, 0, 0, 70), [(pivot[0] + P * 0.03, pivot[1] + P * 0.05),
+                                          (needle[0] + P * 0.03, needle[1] + P * 0.05),
+                                          (needle[0] + P * 0.05, needle[1] + P * 0.07),
+                                          (pivot[0] + P * 0.05, pivot[1] + P * 0.07)])   # arm shadow
+        cw = (pivot[0] - ux * P * 0.30, pivot[1] - uy * P * 0.30)
+        aa_line(layer, METAL_DARK, pivot, cw, tube * 1.3)
+        aa_circle(layer, (33, 31, 44), cw, P * 0.075)
+        aa_circle(layer, METAL_DARK, cw, P * 0.075, width=max(1, int(P / 120)))
+        aa_line(layer, METAL_LIGHT, pivot, elbow, tube)
+        ha = math.atan2(uy, ux) + 0.35
+        hs_end = (elbow[0] + math.cos(ha) * P * 0.21, elbow[1] + math.sin(ha) * P * 0.21)
+        aa_line(layer, (38, 36, 53), elbow, hs_end, tube * 2.0)
+        aa_circle(layer, c1, hs_end, tube * 0.6)
+        aa_circle(layer, METAL_DARK, pivot, P * 0.11)
+        aa_circle(layer, METAL, pivot, P * 0.085)
+        aa_circle(layer, METAL_LIGHT, pivot, P * 0.04)
+        rest = (pivot[0] - P * 0.02, pivot[1] + P * 0.42)
+        aa_circle(layer, METAL_DARK, rest, P * 0.035)
+
+        # controls: start/stop, 33/45, gain fader, strobe lamp
+        bx, by = plinth.x + u * 0.08, plinth.bottom - u * 0.08
+        aa_circle(layer, (12, 11, 17), (bx, by), u * 0.04)
+        aa_circle(layer, METAL if not playing else lerp_color(METAL, c1, 0.5), (bx, by), u * 0.033)
+        text(layer, "START·STOP", (bx, by + u * 0.065), u * 0.018, (*CREAM, 190))
+        for i, (lab, on) in enumerate((("33", True), ("45", False))):
+            x = bx + u * (0.09 + 0.065 * i)
+            pygame.draw.rect(layer, (12, 11, 17), (x - u * 0.025, by - u * 0.017, u * 0.05, u * 0.034),
+                             border_radius=int(u * 0.006))
+            text(layer, lab, (x, by), u * 0.022, c1 if on else (*CREAM, 120))
+        lamp(layer, plinth.x + u * 0.08, plinth.y + u * 0.08, u * 0.012, 0.35 + 0.65 * frame.beat, c1, "STROBE", u)
+
+        fx = plinth.right - u * 0.07
+        f_top, f_bot = plinth.bottom - u * 0.42, plinth.bottom - u * 0.10
+        pygame.draw.rect(layer, (10, 9, 15), (fx - u * 0.006, f_top, u * 0.012, f_bot - f_top), border_radius=int(u * 0.006))
+        for k in range(9):
+            y = f_top + (f_bot - f_top) * k / 8
+            pygame.draw.line(layer, mix((45, 43, 86), CREAM, 0.5), (fx - u * 0.025, y), (fx - u * 0.015, y), 1)
+        level = self._fader.update(frame.volume, dt)
+        ky = f_bot - (f_bot - f_top) * clamp01(level)
+        pygame.draw.rect(layer, (12, 11, 17), (fx - u * 0.022, ky - u * 0.014, u * 0.044, u * 0.03),
+                         border_radius=int(u * 0.005))
+        pygame.draw.rect(layer, METAL, (fx - u * 0.02, ky - u * 0.016, u * 0.04, u * 0.028), border_radius=int(u * 0.005))
+        pygame.draw.line(layer, c1, (fx - u * 0.016, ky - u * 0.002), (fx + u * 0.016, ky - u * 0.002), max(1, int(u / 300)))
+        text(layer, "GAIN", (fx, f_bot + u * 0.03), u * 0.018, (*CREAM, 190))
 
 
-RENDERERS = {cls.style: cls for cls in (MountainsRenderer, LakesideRenderer, StarlightRenderer,
-                                        WindmillsRenderer, FirefliesRenderer)}
+# ------------------------------------------------------------- VU meters
+
+class MetersRenderer(BaseRenderer):
+    """Analog VU meters and gauges on a clockwork gear train."""
+
+    style = "meters"
+
+    def __init__(self):
+        super().__init__()
+        self.reset()
+
+    def reset(self):
+        super().reset()
+        self._needles = [Spring(150, 11), Spring(150, 11), Spring(110, 9), Spring(110, 9), Spring(110, 9)]
+        self._gear_angle = 0.0
+
+    def draw(self, layer, frame, settings, dt):
+        w, h = layer.get_size()
+        u = min(w, h)
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        levels = self.levels(frame, settings, dt)
+        bass, mid, treble = self.bands3(levels)
+        if dt > 0.0015:
+            self._gear_angle += dt * (0.25 + 2.4 * frame.volume + 1.5 * frame.beat)
+
+        plate = pygame.Rect(int(w * 0.03), int(h * 0.05), int(w * 0.94), int(h * 0.90))
+        faceplate(layer, plate, u)
+        text(layer, "AUDIOVISTA", (plate.centerx, plate.y + u * 0.05), u * 0.034, c1, serif=True)
+        text(layer, "STEREO LEVEL MONITOR", (plate.centerx, plate.y + u * 0.088), u * 0.019, (*CREAM, 160))
+
+        # gear train behind the gauges (meshing gears: neighbours turn the other way)
+        gr_y = plate.bottom - plate.h * 0.24
+        g = min(w * 0.085, h * 0.12)
+        spacing = min(w * 0.25, plate.w * 0.27)
+        gear_r = spacing / 2 * 1.02
+        teeth = 22
+        for i, gx in enumerate((plate.centerx - spacing, plate.centerx, plate.centerx + spacing)):
+            direction = 1 if i % 2 == 0 else -1
+            phase = 0 if i % 2 == 0 else math.pi / teeth
+            gear(layer, gx, gr_y, gear_r, teeth, direction * self._gear_angle + phase,
+                 lerp_color((83, 88, 134), c1, 0.25), 255)
+        small_r = gear_r * 0.45
+        for sx, sign in ((plate.centerx - spacing / 2, -1), (plate.centerx + spacing / 2, 1)):
+            sy = gr_y - gear_r - small_r * 0.82
+            gear(layer, sx, sy, small_r, 10, sign * self._gear_angle * gear_r / small_r, (107, 114, 168), 255)
+
+        # two big VU meters
+        mw = min(plate.w * 0.42, (gr_y - gear_r - plate.y - u * 0.14) / 0.56)
+        mh = mw * 0.56
+        top = plate.y + u * 0.13
+        targets = (clamp01(0.55 * bass + 0.45 * mid) * (0.45 + 0.6 * frame.volume) + 0.04,
+                   clamp01(0.45 * mid + 0.55 * treble * 1.4) * (0.45 + 0.6 * frame.volume) + 0.04)
+        for i, lab in enumerate(("LEFT", "RIGHT")):
+            pos = self._needles[i].update(targets[i] * 1.05, dt)
+            x = plate.centerx - mw - u * 0.02 if i == 0 else plate.centerx + u * 0.02
+            draw_vu(layer, pygame.Rect(int(x), int(top), int(mw), int(mh)), pos, lab, targets[i])
+
+        # gauges sit on the gears
+        for i, (lab, v) in enumerate((("BASS", bass), ("MID", mid), ("TREBLE", treble))):
+            val = self._needles[2 + i].update(clamp01(v * 1.15), dt)
+            draw_gauge(layer, plate.centerx + (i - 1) * spacing, gr_y, g, val, lab, c1)
+
+        ly = plate.y + u * 0.06
+        for i, (lab, on, col) in enumerate((("BEAT", frame.beat, c2), ("PEAK", clamp01((frame.volume - 0.85) * 7), RED))):
+            lamp(layer, plate.right - u * (0.15 - 0.075 * i), ly, u * 0.012, on, col, lab, u)
+
+
+# ---------------------------------------------------------------- Embers
+
+class ParticlesRenderer(BaseRenderer):
+    """Warm embers rising over spectrum-shaped dunes in front of a striped sunset."""
+
+    style = "particles"
+    MAX = 900
+
+    def __init__(self, seed: int = 1234):
+        super().__init__()
+        self.seed = seed
+        self.reset()
+
+    def reset(self):
+        super().reset()
+        self._rng = np.random.default_rng(self.seed)
+        self._p = np.zeros((0, 7))   # x, y, vx, vy, life, max_life, size
+        self._heat = np.zeros(0)
+        self._phase = 0.0
+        self._stripe = 0.0
+        self._sparks = None
+
+    def _emit(self, count, w, h, speed, u):
+        if count <= 0:
+            return
+        rng = self._rng
+        x = rng.uniform(0.05, 0.95, count) * w
+        y = h * rng.uniform(0.82, 0.98, count)
+        vx = rng.normal(0, 0.02, count) * u
+        vy = -rng.uniform(0.06, 0.20, count) * u * speed
+        life = rng.uniform(2.0, 4.5, count)
+        size = rng.uniform(0.8, 2.6, count) * u / 600
+        new = np.stack([x, y, vx, vy, life, life, size], axis=1)
+        self._p = np.concatenate([self._p, new])[-self.MAX:]
+        self._heat = np.concatenate([self._heat, rng.uniform(0, 1, count)])[-self.MAX:]
+
+    def _sun(self, r, c1, c2, stripe_offset):
+        surf = pygame.Surface((2 * r + 2, 2 * r + 2), pygame.SRCALPHA)
+        steps = 24
+        for i in range(steps):
+            k = i / (steps - 1)
+            band = pygame.Rect(0, int(k * 2 * r), 2 * r + 2, int(2 * r / steps) + 2)
+            pygame.draw.rect(surf, lerp_color((255, 236, 200), c1, k ** 0.8), band)   # pale gold to the main colour
+        mask = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+        aa_circle(mask, (255, 255, 255, 255), (r + 1, r + 1), r)
+        surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+        gap = max(2, r // 9)
+        for k in range(6):                             # retro stripes, drifting down
+            y = r * 1.0 + (k + stripe_offset) * r * 0.16
+            thick = max(1, int(gap * (0.25 + 0.15 * k)))
+            pygame.draw.rect(surf, (0, 0, 0, 0), (0, int(y), 2 * r + 2, thick))
+        return surf
+
+    def draw_backdrop(self, target, frame, settings, dt):
+        w, h = target.get_size()
+        u = min(w, h)
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        levels = self.levels(frame, settings, dt)
+        if dt > 0.0015:
+            self._phase += dt * (0.15 + 0.6 * frame.volume)
+            self._stripe = (self._stripe + dt * 0.35) % 1.0
+
+        sr = int(u * 0.20 * (1.0 + 0.05 * frame.bass + 0.04 * frame.beat))
+        sx, sy = w * 0.5, h * 0.60
+        glow(target, c1, (sx, sy), sr * 1.9, 0.30 + 0.25 * frame.beat)
+        sun = self._sun(sr, c1, c2, self._stripe)
+        target.blit(sun, sun.get_rect(center=(int(sx), int(sy))))
+
+        n = 120
+        xs = np.linspace(0, w, n)
+        for k in range(3):
+            vals = resample(levels, n)
+            shift = int(self._phase * (8 + 6 * k) + k * 17) % n
+            vals = np.roll(np.convolve(np.concatenate([vals, vals[:8]]), np.ones(9) / 9, mode="same")[:n], shift)
+            base = h * (0.74 + 0.07 * k)
+            ys = base - vals * h * (0.16 - 0.035 * k) - np.sin(xs / w * (3 + k) * math.pi + k) * h * 0.02
+            col = lerp_color(scale_color(c1, 0.28), (9, 8, 15), k / 2.4)
+            pts = [(0, h)] + list(zip(xs.tolist(), ys.tolist())) + [(w, h)]
+            aa_poly(target, col, pts)
+            pygame.draw.aalines(target, lerp_color(col, c2, 0.5 - 0.15 * k), False, pts[1:-1])
+
+    def draw(self, layer, frame, settings, dt):
+        w, h = layer.get_size()
+        u = min(w, h)
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        playing = dt > 0.0015
+
+        burst = int(55 * settings.sensitivity) if frame.is_beat and playing else 0
+        steady = int((8 + frame.volume * 70) * dt * settings.sensitivity) if playing else 0
+        self._emit(steady + burst, w, h, 0.6 + 1.2 * frame.volume, u)
+        if len(self._p) and playing:
+            p = self._p
+            sway = np.sin(p[:, 1] / u * 9 + self._phase * 3 + self._heat * 6) * u * 0.03
+            p[:, 0] += (p[:, 2] + sway) * dt
+            p[:, 1] += p[:, 3] * dt * (1 + 1.2 * frame.beat)
+            p[:, 4] -= dt
+            alive = p[:, 4] > 0
+            self._p = p[alive]
+            self._heat = self._heat[alive]
+        sparks = layer   # the layer only holds sparks, so they can be drawn directly
+        for (x, y, _vx, _vy, life, mlife, size), heat in zip(self._p, self._heat):
+            k = life / mlife
+            flick = 0.75 + 0.25 * math.sin(life * 23 + heat * 40)
+            col = lerp_color(c1, WHITE if heat > 0.85 else c2, heat)
+            alpha = int(255 * min(1.0, k * 1.6) * flick)
+            r = max(1.0, size * (0.7 + 0.6 * k))
+            aa_circle(sparks, (*col, alpha), (x, y), r)
+
+
+RENDERERS = {cls.style: cls for cls in (BarsRenderer, WaveformRenderer, CircularRenderer,
+                                        MetersRenderer, ParticlesRenderer)}
 
 
 def create_renderer(style: str) -> BaseRenderer:

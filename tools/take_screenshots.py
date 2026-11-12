@@ -96,10 +96,10 @@ def main():
     app.player.seek(14.0)
     pump(app, 1.0)
     shot(app, "05_studio_bars")
-    for i, (style, bg, c1, c2) in enumerate([("waveform", "sunset", "#ffb35c", "#7fc8ff"),
-                                              ("circular", "night", "#ff7eb6", "#6fe3cf"),
-                                              ("meters", "golden", "#ff8a7a", "#fff1d6"),
-                                              ("particles", "twilight", "#ffb35c", "#a8e27a")]):
+    for i, (style, bg, c1, c2) in enumerate([("waveform", "twilight", "#ffb35c", "#7fc8ff"),
+                                              ("circular", "night", "#ffb35c", "#ff7eb6"),
+                                              ("meters", "dawn", "#ff8a7a", "#c3a6ff"),
+                                              ("particles", "sunset", "#ff8a7a", "#ffb35c")]):
         studio.change_setting(wave_type=style, background=bg, color=c1, secondary_color=c2)
         studio._apply_settings_to_widgets(studio.settings)
         pump(app, 1.0)
@@ -111,7 +111,7 @@ def main():
     pump(app, 0.4)
     shot(app, "10_queue")
     app.open_modal(SaveDialog(app, studio, after_save=studio.refresh_saved))
-    app.modals[-1].input.set_text("Fireflies at Dusk")
+    app.modals[-1].input.set_text("Sunset Embers")
     pump(app, 0.3)
     shot(app, "11_save_dialog")
     app.modals[-1].save()
