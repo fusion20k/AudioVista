@@ -13,6 +13,7 @@ import pygame
 
 from ..audio.analyzer import AudioAnalyzer
 from ..models import VisualSettings
+from . import retro
 from .backgrounds import draw_background
 from .renderers import create_renderer
 
@@ -24,7 +25,7 @@ def _font(size: int, bold: bool = False) -> pygame.font.Font:
     if key not in _font_cache:
         if not pygame.font.get_init():
             pygame.font.init()
-        _font_cache[key] = pygame.font.SysFont("segoeui,helveticaneue,arial", size, bold=bold)
+        _font_cache[key] = pygame.font.SysFont("georgia,segoeui,arial", size, bold=bold)
     return _font_cache[key]
 
 
@@ -35,12 +36,14 @@ class VisualizerEngine:
         self.settings = settings
         self.renderer = create_renderer(settings.wave_type)
         self.renderer.analyzer = analyzer
+        self.renderer.title = title
         self._layer: pygame.Surface | None = None
 
     def set_settings(self, settings: VisualSettings) -> None:
         if settings.wave_type != self.settings.wave_type:
             self.renderer = create_renderer(settings.wave_type)
             self.renderer.analyzer = self.analyzer
+            self.renderer.title = self.title
         self.settings = settings
 
     def reset(self) -> None:
@@ -54,6 +57,7 @@ class VisualizerEngine:
         frame = self.analyzer.frame_at(t)
         s = self.settings
         draw_background(target, s.background, s.primary_rgb, frame.beat)
+        self.renderer.draw_backdrop(target, frame, s, max(1e-4, min(dt, 0.1)))
 
         if self._layer is None or self._layer.get_size() != size:
             self._layer = pygame.Surface(size, pygame.SRCALPHA)
@@ -65,21 +69,27 @@ class VisualizerEngine:
             # Bloom: shrink the layer a lot (cheap), blur it by smooth-scaling the
             # tiny copy up to half size, then stretch that to full size. The
             # result is so soft that the final cheap stretch is invisible.
+            # Small blur pyramid: shrink, then grow back in 2x steps so the glow
+            # stays round and smooth (one big upscale looks blocky).
             w, h = size
-            tiny = pygame.transform.scale(layer, (max(1, w // 4), max(1, h // 4)))
-            tiny = pygame.transform.smoothscale(tiny, (max(1, w // 10), max(1, h // 10)))
-            half = pygame.transform.smoothscale(tiny, (max(1, w // 2), max(1, h // 2)))
-            blur = pygame.transform.scale(half, size)
+            img = pygame.transform.scale(layer, (max(1, w // 4), max(1, h // 4)))
+            for div in (8, 16):
+                img = pygame.transform.smoothscale(img, (max(1, w // div), max(1, h // div)))
+            for div in (8, 4, 2):
+                img = pygame.transform.smoothscale(img, (max(1, w // div), max(1, h // div)))
+            blur = pygame.transform.scale(img, size)
             target.blit(blur, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
         target.blit(layer, (0, 0))
 
+        if s.vintage:
+            retro.apply(target, t)
         if s.show_title and self.title:
             self._draw_title(target)
 
     def _draw_title(self, target: pygame.Surface) -> None:
         w, h = target.get_size()
         size = max(12, int(min(w, h) * 0.035))
-        text = _font(size, bold=True).render(self.title, True, (240, 240, 250))
+        text = _font(size, bold=True).render(self.title, True, (246, 234, 212))
         shadow = _font(size, bold=True).render(self.title, True, (0, 0, 0))
         shadow.set_alpha(140)
         x, y = int(w * 0.04), int(h - h * 0.05 - text.get_height())

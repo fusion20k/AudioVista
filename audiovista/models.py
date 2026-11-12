@@ -131,14 +131,18 @@ class AudioFile:
 
 # --------------------------------------------------------------- VisualSettings
 
-WAVE_TYPES = ("bars", "waveform", "circular", "particles")
-WAVE_TYPE_LABELS = {"bars": "Equalizer Bars", "waveform": "Waveform",
-                    "circular": "Radial", "particles": "Particles"}
-BACKGROUNDS = ("midnight", "black", "nebula", "sunset", "ocean")
-BACKGROUND_LABELS = {"midnight": "Midnight", "black": "Black", "nebula": "Nebula",
-                     "sunset": "Sunset", "ocean": "Ocean"}
-COLOR_PRESETS = ("#7c5cff", "#00e5ff", "#ff3cac", "#ffd23f", "#3dfc8f",
-                 "#ff6b35", "#ffffff", "#4d7cff")
+# Style keys are stored in saved visualizations, so they stay stable even
+# though the styles have been redesigned (e.g. "waveform" is the tape deck).
+WAVE_TYPES = ("bars", "waveform", "circular", "meters", "particles")
+WAVE_TYPE_LABELS = {"bars": "Equalizer", "waveform": "Tape Deck", "circular": "Turntable",
+                    "meters": "VU Meters", "particles": "Embers"}
+BACKGROUNDS = ("walnut", "ember", "sepia", "dusk", "charcoal")
+BACKGROUND_LABELS = {"walnut": "Walnut", "ember": "Ember", "sepia": "Sepia",
+                     "dusk": "Dusk", "charcoal": "Charcoal"}
+LEGACY_BACKGROUNDS = {"midnight": "walnut", "black": "charcoal", "nebula": "dusk",
+                      "sunset": "ember", "ocean": "sepia"}
+COLOR_PRESETS = ("#e8833a", "#f3c969", "#d9534f", "#f3e6d0",
+                 "#9bb35a", "#4f9a8f", "#d98c8c", "#7fa3c4")
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -153,14 +157,15 @@ class VisualSettings:
     """How a visualization looks. Matches the VisualSettings class in the DCD."""
 
     settings_id: int | None = None
-    color: str = "#7c5cff"
-    secondary_color: str = "#00e5ff"
-    background: str = "midnight"
+    color: str = "#e8833a"
+    secondary_color: str = "#f3c969"
+    background: str = "walnut"
     wave_type: str = "bars"
     sensitivity: float = 1.0     # 0.5 (calm) .. 2.0 (very reactive)
     smoothing: float = 0.6       # 0 (jittery) .. 0.95 (very smooth)
     glow: bool = True
     show_title: bool = True
+    vintage: bool = True         # film grain, warm tint and vignette
 
     def validate(self) -> "VisualSettings":
         hex_to_rgb(self.color)
@@ -194,6 +199,8 @@ class VisualSettings:
         if not isinstance(data, dict):
             raise ValidationError("Settings must be a dictionary.")
         known = {f.name for f in fields(cls)} - {"settings_id"}
+        if data.get("background") in LEGACY_BACKGROUNDS:  # saved before the warm redesign
+            data = {**data, "background": LEGACY_BACKGROUNDS[data["background"]]}
         settings = cls(settings_id=settings_id, **{k: v for k, v in data.items() if k in known})
         return settings.validate()
 

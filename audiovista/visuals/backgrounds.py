@@ -6,13 +6,14 @@ import numpy as np
 import pygame
 
 BACKGROUND_COLORS = {
-    # name: (top colour, bottom colour)
-    "midnight": ((14, 18, 46), (2, 3, 10)),
-    "black": ((0, 0, 0), (0, 0, 0)),
-    "nebula": ((30, 10, 48), (4, 2, 14)),
-    "sunset": ((58, 16, 52), (14, 6, 24)),
-    "ocean": ((2, 40, 56), (1, 8, 16)),
+    # name: (top / centre colour, bottom / edge colour)
+    "walnut": ((48, 32, 22), (13, 9, 6)),
+    "ember": ((70, 30, 14), (12, 6, 4)),
+    "sepia": ((56, 45, 32), (17, 13, 9)),
+    "dusk": ((48, 28, 40), (10, 7, 12)),
+    "charcoal": ((26, 24, 22), (7, 7, 7)),
 }
+RADIAL = ("ember", "dusk")
 
 _cache: dict = {}
 _flash: dict = {}
@@ -37,8 +38,8 @@ def get_background(name: str, size: tuple[int, int]) -> pygame.Surface:
     key = (name, size)
     surf = _cache.get(key)
     if surf is None:
-        top, bottom = BACKGROUND_COLORS.get(name, BACKGROUND_COLORS["midnight"])
-        surf = _gradient(size, top, bottom, radial=name in ("nebula", "sunset"))
+        top, bottom = BACKGROUND_COLORS.get(name, BACKGROUND_COLORS["walnut"])
+        surf = _gradient(size, top, bottom, radial=name in RADIAL)
         if len(_cache) > 16:
             _cache.clear()
         _cache[key] = surf
@@ -47,7 +48,7 @@ def get_background(name: str, size: tuple[int, int]) -> pygame.Surface:
 
 def draw_background(target: pygame.Surface, name: str, color, beat: float) -> None:
     target.blit(get_background(name, target.get_size()), (0, 0))
-    if beat > 0.02 and name != "black":
+    if beat > 0.02 and name != "charcoal":
         # A plain fill + additive blit is far faster than fill(special_flags=ADD).
         size = target.get_size()
         flash = _flash.get(size)

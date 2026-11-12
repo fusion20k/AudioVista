@@ -14,21 +14,23 @@ from collections import OrderedDict
 import numpy as np
 import pygame
 
-BG = (11, 13, 21)
-PANEL = (18, 21, 33)
-PANEL_2 = (26, 30, 46)
-PANEL_3 = (34, 39, 58)
-BORDER = (44, 50, 72)
-TEXT = (233, 236, 246)
-TEXT_DIM = (154, 160, 184)
-TEXT_MUTED = (102, 108, 134)
-ACCENT = (124, 92, 255)
-ACCENT_HOVER = (148, 122, 255)
-ACCENT_DARK = (70, 52, 150)
-CYAN = (0, 212, 255)
-DANGER = (255, 92, 122)
-SUCCESS = (64, 214, 160)
-WARNING = (255, 196, 76)
+# Warm, nostalgic palette: espresso browns, cream text, burnt-amber accents.
+BG = (20, 16, 13)
+PANEL = (30, 24, 19)
+PANEL_2 = (42, 34, 27)
+PANEL_3 = (56, 45, 36)
+BORDER = (72, 58, 46)
+TEXT = (243, 230, 208)
+TEXT_DIM = (192, 170, 140)
+TEXT_MUTED = (134, 116, 94)
+ACCENT = (222, 122, 52)
+ACCENT_HOVER = (240, 146, 76)
+ACCENT_DARK = (108, 56, 27)
+GOLD = (232, 186, 92)
+RUST = (186, 74, 52)
+DANGER = (226, 88, 72)
+SUCCESS = (156, 190, 102)
+WARNING = (236, 190, 80)
 
 SUPERSAMPLE = 3
 
@@ -316,12 +318,12 @@ def _logo_tile(size: int) -> pygame.Surface:
     """Gradient squircle background of the logo at *size* px (not cached)."""
     yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) / max(1, size - 1)
     t = np.clip((xx * 0.55 + yy * 0.45), 0, 1)[..., None]
-    c1 = np.array((132, 86, 255), np.float32)
-    c2 = np.array((0, 206, 255), np.float32)
+    c1 = np.array((246, 172, 70), np.float32)   # warm amber
+    c2 = np.array((200, 72, 40), np.float32)    # burnt orange / rust
     rgb = c1 + (c2 - c1) * t
     # soft highlight in the top-left corner
     glow = np.clip(1.0 - np.sqrt((xx - 0.2) ** 2 + (yy - 0.15) ** 2) / 0.7, 0, 1)[..., None]
-    rgb = np.clip(rgb + glow * 40, 0, 255)
+    rgb = np.clip(rgb + glow * 34, 0, 255)
     # mgrid gives (y, x) arrays; surfarray wants (x, y).
     tile = _to_alpha(pygame.surfarray.make_surface(rgb.transpose(1, 0, 2).astype(np.uint8)))
     mask = pygame.Surface((size, size), pygame.SRCALPHA)
@@ -345,7 +347,7 @@ def render_logo(size: int, tile: bool = True) -> pygame.Surface:
     big_size = size * k
     if tile:
         big = _logo_tile(big_size)
-        stroke_col = (255, 255, 255, 255)
+        stroke_col = (255, 244, 224, 255)
     else:
         big = pygame.Surface((big_size, big_size), pygame.SRCALPHA)
         stroke_col = None
@@ -353,7 +355,7 @@ def render_logo(size: int, tile: bool = True) -> pygame.Surface:
         return [(x * big_size, y * big_size) for x, y in path]
 
     stroke = pygame.Surface((big_size, big_size), pygame.SRCALPHA)
-    white = (255, 255, 255, 255)
+    white = (255, 244, 224, 255)  # cream
     _lines(stroke, white, pts(LOGO_V), max(2, int(big_size * 0.115)))
     for wave in (LOGO_WAVE_LEFT, LOGO_WAVE_RIGHT):
         _lines(stroke, white, pts(wave), max(2, int(big_size * 0.06)))
@@ -364,7 +366,7 @@ def render_logo(size: int, tile: bool = True) -> pygame.Surface:
         big.blit(grad, (0, 0))
     else:
         shadow = stroke.copy()
-        shadow.fill((40, 20, 110, 90), special_flags=pygame.BLEND_RGBA_MULT)
+        shadow.fill((90, 30, 10, 110), special_flags=pygame.BLEND_RGBA_MULT)
         big.blit(shadow, (0, int(big_size * 0.025)))
         big.blit(stroke, (0, 0))
     return pygame.transform.smoothscale(big, (size, size))

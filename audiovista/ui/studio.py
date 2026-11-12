@@ -65,7 +65,7 @@ class StudioScreen(Screen):
 
         # --- settings panel
         self.style_group = ChoiceGroup([(s, WAVE_TYPE_LABELS[s]) for s in WAVE_TYPES], self.settings.wave_type,
-                                       lambda v: self.change_setting(wave_type=v), columns=2)
+                                       lambda v: self.change_setting(wave_type=v), columns=3, chip_height=34)
         self.color_swatches = ColorSwatches(list(COLOR_PRESETS), self.settings.color,
                                             lambda v: self.change_setting(color=v))
         self.color2_swatches = ColorSwatches(list(COLOR_PRESETS), self.settings.secondary_color,
@@ -77,7 +77,8 @@ class StudioScreen(Screen):
         self.smooth_slider = Slider(0.0, 0.95, self.settings.smoothing,
                                     lambda v: self.change_setting(smoothing=round(v, 2)))
         self.glow_toggle = Toggle("Glow", self.settings.glow, lambda v: self.change_setting(glow=v))
-        self.title_toggle = Toggle("Show title", self.settings.show_title,
+        self.vintage_toggle = Toggle("Retro", self.settings.vintage, lambda v: self.change_setting(vintage=v))
+        self.title_toggle = Toggle("Title", self.settings.show_title,
                                    lambda v: self.change_setting(show_title=v))
         self.save_btn = Button("Save", self.click_save, kind="secondary", icon="save")
         self.export_btn = Button("Export", self.click_export, icon="download")
@@ -96,6 +97,7 @@ class StudioScreen(Screen):
 
         self.settings_widgets = [self.style_group, self.color_swatches, self.color2_swatches, self.bg_group,
                                  self.sens_slider, self.smooth_slider, self.glow_toggle, self.title_toggle,
+                                 self.vintage_toggle,
                                  self.save_btn, self.export_btn]
         self.transport_widgets = [self.play_btn, self.prev_btn, self.next_btn, self.seek, self.volume,
                                   self.focus_btn]
@@ -188,9 +190,9 @@ class StudioScreen(Screen):
         y += px(44)
         self.smooth_slider.rect = pygame.Rect(pxx + px(4), y, pw - px(8), px(16))
         y += px(30)
-        half = (pw - px(24)) // 2
-        self.glow_toggle.rect = pygame.Rect(pxx, y, half, px(30))
-        self.title_toggle.rect = pygame.Rect(pxx + half + px(24), y, half, px(30))
+        third = (pw - px(24)) // 3
+        for i, toggle in enumerate((self.glow_toggle, self.title_toggle, self.vintage_toggle)):
+            toggle.rect = pygame.Rect(pxx + i * (third + px(12)), y, third, px(30))
         bh = px(44)
         self.save_btn.rect = pygame.Rect(pxx, self.panel.bottom - bh - px(16), (pw - px(10)) // 2, bh)
         self.export_btn.rect = pygame.Rect(self.save_btn.rect.right + px(10), self.save_btn.rect.y,
@@ -374,6 +376,7 @@ class StudioScreen(Screen):
         self.smooth_slider.value = s.smoothing
         self.glow_toggle.value = s.glow
         self.title_toggle.value = s.show_title
+        self.vintage_toggle.value = s.vintage
 
     def click_save(self):
         if self.app.session.get_current_visualization() is None:
@@ -461,7 +464,7 @@ class StudioScreen(Screen):
             if ctrl and event.key == pygame.K_o:
                 self.choose_file()
                 return True
-            if pygame.K_1 <= event.key <= pygame.K_4:
+            if pygame.K_1 <= event.key < pygame.K_1 + len(WAVE_TYPES):
                 style = WAVE_TYPES[event.key - pygame.K_1]
                 self.style_group.value = style
                 self.change_setting(wave_type=style)

@@ -96,36 +96,37 @@ def main():
     app.player.seek(14.0)
     pump(app, 1.0)
     shot(app, "05_studio_bars")
-    for i, (style, bg, c1, c2) in enumerate([("waveform", "ocean", "#00e5ff", "#3dfc8f"),
-                                              ("circular", "nebula", "#ff3cac", "#7c5cff"),
-                                              ("particles", "sunset", "#ffd23f", "#ff3cac")]):
+    for i, (style, bg, c1, c2) in enumerate([("waveform", "walnut", "#e8833a", "#f3c969"),
+                                              ("circular", "ember", "#e8833a", "#f3e6d0"),
+                                              ("meters", "sepia", "#d9534f", "#f3c969"),
+                                              ("particles", "dusk", "#e8833a", "#f3c969")]):
         studio.change_setting(wave_type=style, background=bg, color=c1, secondary_color=c2)
         studio._apply_settings_to_widgets(studio.settings)
         pump(app, 1.0)
-        shot(app, f"0{6 + i}_studio_{style}")
+        shot(app, f"{6 + i:02d}_studio_{style}")
 
     # 4. Queue tab, save dialog, saved tab, export dialog
     studio.enqueue(studio.library_list.items[0])
     studio.set_tab("queue")
     pump(app, 0.4)
-    shot(app, "09_queue")
+    shot(app, "10_queue")
     app.open_modal(SaveDialog(app, studio, after_save=studio.refresh_saved))
     app.modals[-1].input.set_text("Sunset Particles")
     pump(app, 0.3)
-    shot(app, "10_save_dialog")
+    shot(app, "11_save_dialog")
     app.modals[-1].save()
     studio.set_tab("saved")
     pump(app, 0.4)
-    shot(app, "11_saved_library")
+    shot(app, "12_saved_library")
     app.open_modal(ExportDialog(app, studio))
     pump(app, 0.3)
-    shot(app, "12_export_dialog")
+    shot(app, "13_export_dialog")
     app.modals.clear()
 
     # 5. Focus (full view) mode
     studio.toggle_focus()
     pump(app, 0.8)
-    shot(app, "13_full_view")
+    shot(app, "14_full_view")
     studio.toggle_focus()
 
     app.player.unload()

@@ -18,7 +18,7 @@ class TestVisualSettings:
     def test_defaults_are_valid(self):
         s = VisualSettings().validate()
         assert s.wave_type in WAVE_TYPES
-        assert s.primary_rgb == (0x7c, 0x5c, 0xff)
+        assert s.primary_rgb == (0xe8, 0x83, 0x3a)
 
     def test_round_trip_through_dict(self):
         s = VisualSettings(color="#00e5ff", wave_type="particles", sensitivity=1.5, glow=False)
@@ -27,7 +27,7 @@ class TestVisualSettings:
 
     def test_from_dict_ignores_unknown_keys_and_fills_defaults(self):
         s = VisualSettings.from_dict({"wave_type": "waveform", "something_else": 1})
-        assert s.wave_type == "waveform" and s.background == "midnight"
+        assert s.wave_type == "waveform" and s.background == "walnut"
 
     @pytest.mark.parametrize("bad", [
         {"color": "red"}, {"color": "#12345"}, {"secondary_color": "#GGGGGG"},
@@ -44,8 +44,8 @@ class TestVisualSettings:
 
     def test_copy_changes_only_given_fields(self):
         s = VisualSettings()
-        c = s.copy(background="ocean")
-        assert c.background == "ocean" and s.background == "midnight"
+        c = s.copy(background="sepia")
+        assert c.background == "sepia" and s.background == "walnut"
         assert c.color == s.color
         with pytest.raises(ValidationError):
             s.copy(background="nope")
@@ -81,8 +81,8 @@ def analyzer():
 @pytest.mark.parametrize("style", WAVE_TYPES)
 def test_every_style_renders_something(analyzer, style):
     pygame.init()
-    engine = VisualizerEngine(analyzer, VisualSettings(wave_type=style, background="black",
-                                                       show_title=False, glow=False))
+    engine = VisualizerEngine(analyzer, VisualSettings(wave_type=style, background="charcoal",
+                                                       show_title=False, glow=False, vintage=False))
     surface = pygame.Surface((320, 180))
     for i in range(10):
         engine.render(surface, 0.5 + i / 30, 1 / 30)
@@ -129,3 +129,10 @@ def test_data_dir_is_a_real_on_disk_path(tmp_path, monkeypatch):
     path = config.data_dir()
     assert path.is_dir()
     assert str(path) == os.path.realpath(path)
+
+
+def test_settings_saved_before_the_warm_redesign_still_load():
+    old = {"color": "#7c5cff", "secondary_color": "#00e5ff", "background": "nebula",
+           "wave_type": "circular", "sensitivity": 1.0, "smoothing": 0.6, "glow": True, "show_title": True}
+    s = VisualSettings.from_dict(old)
+    assert s.background == "dusk" and s.vintage is True

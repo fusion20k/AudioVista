@@ -43,8 +43,8 @@ class AmbientBackdrop:
         n = 120
         xs = [i * sw / (n - 1) for i in range(n)]
         for k, (col, speed, freq, amp, base) in enumerate([
-                (T.ACCENT, 0.45, 1.6, 0.10, 0.70), (T.CYAN, 0.30, 2.3, 0.08, 0.76),
-                ((255, 60, 172), 0.6, 1.1, 0.06, 0.82)]):
+                (T.ACCENT, 0.45, 1.6, 0.10, 0.70), (T.GOLD, 0.30, 2.3, 0.08, 0.76),
+                (T.RUST, 0.6, 1.1, 0.06, 0.82)]):
             pts = [(0, sh)]
             for i, x in enumerate(xs):
                 u = i / (n - 1)
