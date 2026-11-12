@@ -1,0 +1,133 @@
+# AudioVista
+
+**An interactive audio visualization application** — CSI 3370 group project.
+
+AudioVista turns music into synchronized visuals. Upload an MP3, WAV or FLAC
+file, pick a visualizer style, colours and background, preview it live while the
+song plays, save it to your library and export it as an MP4 video for social
+media or YouTube. No video-editing skills required.
+
+Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
+
+![Studio – radial visualizer](docs/screenshots/07_studio_circular.png)
+
+## Features
+
+| Requirement (Phase 1–3) | Where it lives |
+| --- | --- |
+| Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
+| Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
+| Readable soundwave + waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.overview` |
+| Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
+| Four styles: Equalizer Bars, Waveform, Radial, Particles | `visuals/renderers.py` |
+| Settings: primary/accent colour, background, sensitivity, smoothing, glow, title | `VisualSettings`, studio right panel |
+| Play / pause, seek, volume, previous / next | `AudioPlayer`, studio transport bar |
+| Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |
+| Save result to *My Library*, reopen and delete later | `ResultController`, studio *Saved* tab |
+| Export result as MP4 (480p, 720p, 1080p, square, vertical; 30/60 fps) | `ExportController`, `ExportFile` |
+
+## Getting started (Windows)
+
+Requires **Python 3.10+**.
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+```bash
+python main.py
+```
+
+Or double-click `run.bat`. ffmpeg is bundled through the `imageio-ffmpeg`
+package, so nothing else needs installing.
+
+First run: create an account, then press **Upload audio** (or drag a file onto
+the window). Don't have a song handy? Press **Try the demo track** — AudioVista
+synthesises a short royalty-free loop.
+
+### Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| Space | Play / pause |
+| ← / → | Seek 5 seconds |
+| 1 – 4 | Switch visualizer style |
+| F / Esc | Full view on / off |
+| N | Next track in queue |
+| Ctrl+O / Ctrl+S / Ctrl+E | Upload / Save / Export |
+
+## Running the tests
+
+```bash
+python -m pytest
+```
+
+The suite (71 tests) covers the classes chosen for Phase 4 — `AccountController`
+and `AudioAnalyzer` — with normal and incorrect inputs, plus the upload, save and
+export use cases, `VisualSettings`, `PlaybackQueue`, every renderer and the player
+clock. Tests use a temporary data folder and never touch your real library.
+
+To regenerate the screenshots in `docs/screenshots/` (drives the real UI with no
+visible window):
+
+```bash
+python tools/take_screenshots.py
+```
+
+## Architecture
+
+The code follows the Phase 3 design class diagram and sequence diagrams.
+
+```
+AudioVistaUI (ui/app.py)
+ ├─ AccountController ── Account ── Database (SQLite)
+ ├─ UploadController ─── AudioFile ── decoder (ffmpeg / wave) ── AudioAnalyzer (FFT)
+ ├─ VisualizerController ─ Visualization ── VisualSettings
+ │                          └─ VisualizerEngine ("Audio Visualizer Generation System")
+ ├─ ResultController ─── Session ── Database
+ └─ ExportController ─── ExportFile (ffmpeg H.264 + AAC)
+```
+
+```
+audiovista/
+  config.py          constants, data folder (%LOCALAPPDATA%\AudioVista)
+  errors.py          user-facing exceptions
+  models.py          Account, AudioFile, VisualSettings, Visualization, Session, PlaybackQueue
+  database.py        Database (accounts, audio_files, visualizations, exports)
+  controllers.py     Account/Upload/Visualizer/Result/Export controllers
+  export.py          ExportFile – pipes rendered frames + audio into ffmpeg
+  audio/
+    decoder.py       MP3/WAV/FLAC -> numpy samples
+    analyzer.py      AudioAnalyzer – STFT, log-spaced bands, loudness, beat detection, tempo
+    player.py        AudioPlayer – pygame.mixer playback with an accurate clock
+    demo.py          synthesised demo track
+  visuals/
+    renderers.py     Bars, Waveform, Radial, Particles
+    backgrounds.py   gradient backgrounds + beat flash
+    engine.py        VisualizerEngine – live preview and export frames
+  ui/
+    app.py           AudioVistaUI – window, main loop, background tasks
+    auth_screens.py  Log in / Create account
+    studio.py        main workspace
+    dialogs.py       Save, Export, Confirm dialogs and file pickers
+    widgets.py       buttons, inputs, sliders, lists, seek bar, toasts
+    theme.py         colours, fonts, vector icons
+tests/               pytest suite
+tools/               screenshot script
+```
+
+### How the visualizer stays in sync
+
+When a track loads, `AudioAnalyzer` runs a short-time Fast Fourier Transform over
+the whole file (4096-sample Hann window, 512-sample hop ≈ 86 analyses per second)
+and stores 64 log-spaced frequency bands, an RMS loudness envelope and detected
+beat times (bass-energy onsets above the local average). Each frame, the renderer
+asks for the analysis at the player's current position, so the visuals line up
+with what you hear, and video export renders exactly the same frames.
+
+### Where data is stored
+
+Accounts, the library and saved visualizations are kept in
+`%LOCALAPPDATA%\AudioVista` (SQLite database + copies of uploaded audio). Set the
+`AUDIOVISTA_DATA_DIR` environment variable to use a different folder. Exported
+videos go to `Videos\AudioVista` by default.

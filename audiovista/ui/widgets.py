@@ -1,0 +1,641 @@
+"""A small set of pygame widgets: buttons, text inputs, sliders, lists..."""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Callable
+
+import pygame
+
+from . import theme as T
+
+
+def mouse_pos():
+    return pygame.mouse.get_pos()
+
+
+class Widget:
+    def __init__(self, rect=None):
+        self.rect = pygame.Rect(rect or (0, 0, 0, 0))
+        self.visible = True
+        self.enabled = True
+
+    @property
+    def hovered(self) -> bool:
+        return self.visible and self.rect.collidepoint(mouse_pos())
+
+    def handle_event(self, event) -> bool:
+        return False
+
+    def update(self, dt: float) -> None:
+        pass
+
+    def draw(self, surf: pygame.Surface) -> None:
+        pass
+
+
+# ---------------------------------------------------------------- Button
+
+class Button(Widget):
+    KINDS = {
+        # kind: (bg, hover bg, text colour, border)
+        "primary": (T.ACCENT, T.ACCENT_HOVER, (255, 255, 255), None),
+        "secondary": (T.PANEL_2, T.PANEL_3, T.TEXT, T.BORDER),
+        "ghost": (None, T.PANEL_2, T.TEXT_DIM, None),
+        "danger": (T.PANEL_2, (70, 30, 42), T.DANGER, T.BORDER),
+        "link": (None, None, T.ACCENT_HOVER, None),
+    }
+
+    def __init__(self, text: str = "", on_click: Callable[[], Any] | None = None, kind: str = "primary",
+                 icon: str | None = None, size: int = 14, rect=None, tooltip: str = "",
+                 radius: int = 10):
+        super().__init__(rect)
+        self.text = text
+        self.on_click = on_click
+        self.kind = kind
+        self.icon = icon
+        self.size = size
+        self.tooltip = tooltip
+        self.radius = radius
+        self.active = False  # for toggle-style buttons
+        self._pressed = False
+
+    def handle_event(self, event) -> bool:
+        if not (self.visible and self.enabled):
+            return False
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.collidepoint(event.pos):
+            self._pressed = True
+            return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self._pressed:
+            self._pressed = False
+            if self.rect.collidepoint(event.pos) and self.on_click:
+                self.on_click()
+            return True
+        return False
+
+    def draw(self, surf):
+        if not self.visible:
+            return
+        bg, bg_hover, fg, border = self.KINDS[self.kind]
+        hovered = self.hovered and self.enabled
+        if self.active:
+            bg, fg, border = T.ACCENT_DARK, (255, 255, 255), T.ACCENT
+        col = bg_hover if hovered and bg_hover else bg
+        if col:
+            pygame.draw.rect(surf, col, self.rect, border_radius=self.radius)
+        if border:
+            pygame.draw.rect(surf, border, self.rect, 1, border_radius=self.radius)
+        if not self.enabled:
+            fg = T.TEXT_MUTED
+        elif self.kind == "link" and hovered:
+            fg = (255, 255, 255)
+        elif self.kind == "ghost" and hovered:
+            fg = T.TEXT
+
+        icon_size = min(self.rect.h - 14, 18)
+        if self.icon and not self.text:
+            ir = pygame.Rect(0, 0, icon_size, icon_size)
+            ir.center = self.rect.center
+            T.draw_icon(surf, self.icon, ir, fg)
+            return
+        tw = T.text_width(self.text, self.size, bold=True)
+        total = tw + (icon_size + 8 if self.icon else 0)
+        x = self.rect.centerx - total // 2
+        if self.icon:
+            ir = pygame.Rect(x, 0, icon_size, icon_size)
+            ir.centery = self.rect.centery
+            T.draw_icon(surf, self.icon, ir, fg)
+            x += icon_size + 8
+        T.draw_text(surf, self.text, (x, self.rect.centery), self.size, fg, bold=True, anchor="midleft")
+
+
+# ------------------------------------------------------------- TextInput
+
+class TextInput(Widget):
+    def __init__(self, placeholder: str = "", password: bool = False, max_length: int = 120,
+                 on_submit: Callable[[], Any] | None = None, rect=None, text: str = ""):
+        super().__init__(rect)
+        self.placeholder = placeholder
+        self.password = password
+        self.max_length = max_length
+        self.on_submit = on_submit
+        self.text = text
+        self.cursor = len(text)
+        self.focused = False
+        self.error = False
+        self._blink = 0.0
+
+    def focus(self, on: bool = True):
+        self.focused = on
+        self._blink = 0.0
+        if on:
+            self.cursor = len(self.text)
+            pygame.key.start_text_input()
+
+    def set_text(self, text: str):
+        self.text = text[: self.max_length]
+        self.cursor = len(self.text)
+
+    def _insert(self, s: str):
+        s = s.replace("\r", "").replace("\n", "")
+        room = self.max_length - len(self.text)
+        if room <= 0 or not s:
+            return
+        s = s[:room]
+        self.text = self.text[: self.cursor] + s + self.text[self.cursor:]
+        self.cursor += len(s)
+        self.error = False
+
+    def handle_event(self, event) -> bool:
+        if not self.visible:
+            return False
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            inside = self.rect.collidepoint(event.pos)
+            if inside != self.focused:
+                self.focus(inside)
+            return inside
+        if not self.focused:
+            return False
+        if event.type == pygame.TEXTINPUT:
+            self._insert(event.text)
+            self._blink = 0.0
+            return True
+        if event.type == pygame.KEYDOWN:
+            self._blink = 0.0
+            ctrl = event.mod & pygame.KMOD_CTRL
+            if event.key == pygame.K_BACKSPACE:
+                if ctrl:
+                    cut = self.text[: self.cursor].rstrip()
+                    cut = cut[: cut.rfind(" ") + 1] if " " in cut else ""
+                    self.text = cut + self.text[self.cursor:]
+                    self.cursor = len(cut)
+                elif self.cursor > 0:
+                    self.text = self.text[: self.cursor - 1] + self.text[self.cursor:]
+                    self.cursor -= 1
+            elif event.key == pygame.K_DELETE:
+                self.text = self.text[: self.cursor] + self.text[self.cursor + 1:]
+            elif event.key == pygame.K_LEFT:
+                self.cursor = max(0, self.cursor - 1)
+            elif event.key == pygame.K_RIGHT:
+                self.cursor = min(len(self.text), self.cursor + 1)
+            elif event.key == pygame.K_HOME:
+                self.cursor = 0
+            elif event.key == pygame.K_END:
+                self.cursor = len(self.text)
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                if self.on_submit:
+                    self.on_submit()
+            elif ctrl and event.key == pygame.K_v:
+                try:
+                    clip = pygame.scrap.get_text() if hasattr(pygame.scrap, "get_text") else ""
+                except pygame.error:
+                    clip = ""
+                self._insert(clip or "")
+            elif ctrl and event.key == pygame.K_a:
+                self.cursor = len(self.text)
+            else:
+                return event.key not in (pygame.K_TAB, pygame.K_ESCAPE)
+            return True
+        return False
+
+    def update(self, dt):
+        self._blink += dt
+
+    def draw(self, surf):
+        if not self.visible:
+            return
+        border = T.DANGER if self.error else (T.ACCENT if self.focused else T.BORDER)
+        pygame.draw.rect(surf, T.PANEL_2, self.rect, border_radius=10)
+        pygame.draw.rect(surf, border, self.rect, 2 if self.focused or self.error else 1, border_radius=10)
+        pad = 14
+        inner = self.rect.inflate(-2 * pad, 0)
+        shown = "•" * len(self.text) if self.password else self.text
+        size = 15
+        clip = surf.get_clip()
+        surf.set_clip(inner.clip(clip) if clip else inner)
+        if not self.text and not self.focused:
+            T.draw_text(surf, self.placeholder, (inner.x, inner.centery), size, T.TEXT_MUTED, anchor="midleft")
+        else:
+            before = shown[: self.cursor]
+            cx = T.text_width(before, size)
+            offset = max(0, cx - inner.w + 4)
+            if not self.text:
+                T.draw_text(surf, self.placeholder, (inner.x, inner.centery), size, T.TEXT_MUTED,
+                            anchor="midleft")
+            else:
+                T.draw_text(surf, shown, (inner.x - offset, inner.centery), size, T.TEXT, anchor="midleft")
+            if self.focused and (self._blink % 1.0) < 0.55:
+                x = inner.x + cx - offset
+                pygame.draw.line(surf, T.TEXT, (x, inner.centery - 10), (x, inner.centery + 10), 2)
+        surf.set_clip(clip)
+
+
+# ---------------------------------------------------------------- Slider
+
+class Slider(Widget):
+    def __init__(self, minimum: float, maximum: float, value: float,
+                 on_change: Callable[[float], Any] | None = None, rect=None,
+                 on_release: Callable[[float], Any] | None = None):
+        super().__init__(rect)
+        self.min, self.max = minimum, maximum
+        self.value = value
+        self.on_change = on_change
+        self.on_release = on_release
+        self.dragging = False
+
+    def _value_at(self, x: int) -> float:
+        t = (x - self.rect.x) / max(1, self.rect.w)
+        return self.min + (self.max - self.min) * min(max(t, 0.0), 1.0)
+
+    def handle_event(self, event) -> bool:
+        if not self.visible:
+            return False
+        hit = self.rect.inflate(0, 16)
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and hit.collidepoint(event.pos):
+            self.dragging = True
+            self._set(self._value_at(event.pos[0]))
+            return True
+        if event.type == pygame.MOUSEMOTION and self.dragging:
+            self._set(self._value_at(event.pos[0]))
+            return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.dragging:
+            self.dragging = False
+            if self.on_release:
+                self.on_release(self.value)
+            return True
+        return False
+
+    def _set(self, v):
+        if v != self.value:
+            self.value = v
+            if self.on_change:
+                self.on_change(v)
+
+    def draw(self, surf):
+        if not self.visible:
+            return
+        track = pygame.Rect(self.rect.x, self.rect.centery - 3, self.rect.w, 6)
+        pygame.draw.rect(surf, T.PANEL_3, track, border_radius=3)
+        t = (self.value - self.min) / max(1e-9, self.max - self.min)
+        fill = track.copy()
+        fill.w = int(track.w * t)
+        pygame.draw.rect(surf, T.ACCENT, fill, border_radius=3)
+        knob_r = 9 if (self.dragging or self.hovered) else 7
+        pygame.draw.circle(surf, (255, 255, 255), (track.x + fill.w, track.centery), knob_r)
+
+
+# ---------------------------------------------------------------- Toggle
+
+class Toggle(Widget):
+    def __init__(self, label: str, value: bool, on_change: Callable[[bool], Any] | None = None, rect=None):
+        super().__init__(rect)
+        self.label = label
+        self.value = value
+        self.on_change = on_change
+
+    def handle_event(self, event) -> bool:
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.rect.collidepoint(event.pos):
+            self.value = not self.value
+            if self.on_change:
+                self.on_change(self.value)
+            return True
+        return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
+
+    def draw(self, surf):
+        T.draw_text(surf, self.label, (self.rect.x, self.rect.centery), 14, T.TEXT_DIM, anchor="midleft")
+        sw = pygame.Rect(0, 0, 40, 22)
+        sw.midright = self.rect.midright
+        pygame.draw.rect(surf, T.ACCENT if self.value else T.PANEL_3, sw, border_radius=11)
+        kx = sw.right - 11 if self.value else sw.x + 11
+        pygame.draw.circle(surf, (255, 255, 255), (kx, sw.centery), 8)
+
+
+# ---------------------------------------------------------------- Chips
+
+class ChoiceGroup(Widget):
+    """Grid of selectable chips (one active)."""
+
+    def __init__(self, options: list[tuple[Any, str]], value: Any, on_change: Callable[[Any], Any],
+                 columns: int = 2, chip_height: int = 36, gap: int = 8, rect=None):
+        super().__init__(rect)
+        self.options = options
+        self.value = value
+        self.on_change = on_change
+        self.columns = columns
+        self.chip_height = chip_height
+        self.gap = gap
+
+    @property
+    def height(self) -> int:
+        rows = (len(self.options) + self.columns - 1) // self.columns
+        return rows * self.chip_height + (rows - 1) * self.gap
+
+    def _chip_rects(self):
+        cw = (self.rect.w - self.gap * (self.columns - 1)) / self.columns
+        for i, opt in enumerate(self.options):
+            r, c = divmod(i, self.columns)
+            yield opt, pygame.Rect(int(self.rect.x + c * (cw + self.gap)),
+                                   self.rect.y + r * (self.chip_height + self.gap), int(cw), self.chip_height)
+
+    def handle_event(self, event) -> bool:
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            for (val, _label), r in self._chip_rects():
+                if r.collidepoint(event.pos):
+                    if val != self.value:
+                        self.value = val
+                        self.on_change(val)
+                    return True
+        return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
+
+    def draw(self, surf):
+        mp = mouse_pos()
+        for (val, label), r in self._chip_rects():
+            active = val == self.value
+            bg = T.ACCENT_DARK if active else (T.PANEL_3 if r.collidepoint(mp) else T.PANEL_2)
+            pygame.draw.rect(surf, bg, r, border_radius=9)
+            pygame.draw.rect(surf, T.ACCENT if active else T.BORDER, r, 1, border_radius=9)
+            T.draw_text(surf, label, r.center, 13, (255, 255, 255) if active else T.TEXT_DIM,
+                        bold=active, anchor="center", max_width=r.w - 8)
+
+
+class ColorSwatches(Widget):
+    def __init__(self, colors: list[str], value: str, on_change: Callable[[str], Any], rect=None,
+                 size: int = 26, gap: int = 8):
+        super().__init__(rect)
+        self.colors = colors
+        self.value = value
+        self.on_change = on_change
+        self.size = size
+        self.gap = gap
+
+    @property
+    def height(self) -> int:
+        per_row = max(1, (self.rect.w + self.gap) // (self.size + self.gap))
+        rows = (len(self.colors) + per_row - 1) // per_row
+        return rows * self.size + (rows - 1) * self.gap
+
+    def _swatches(self):
+        per_row = max(1, (self.rect.w + self.gap) // (self.size + self.gap))
+        for i, c in enumerate(self.colors):
+            r, col = divmod(i, per_row)
+            yield c, pygame.Rect(self.rect.x + col * (self.size + self.gap),
+                                 self.rect.y + r * (self.size + self.gap), self.size, self.size)
+
+    def handle_event(self, event) -> bool:
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            for c, r in self._swatches():
+                if r.collidepoint(event.pos):
+                    self.value = c
+                    self.on_change(c)
+                    return True
+        return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
+
+    def draw(self, surf):
+        mp = mouse_pos()
+        for c, r in self._swatches():
+            rgb = tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
+            rad = r.w // 2 - (0 if r.collidepoint(mp) else 2)
+            if c.lower() == (self.value or "").lower():
+                pygame.draw.circle(surf, (255, 255, 255), r.center, r.w // 2 + 3, 2)
+            pygame.draw.circle(surf, rgb, r.center, rad)
+
+
+# -------------------------------------------------------------- ListView
+
+class ListView(Widget):
+    """Scrollable list. ``row_actions`` are (icon, callback(item), tooltip) shown on hover."""
+
+    def __init__(self, on_select: Callable[[Any], Any] | None = None, row_height: int = 52,
+                 row_actions: list | None = None, empty_text: str = "Nothing here yet",
+                 subtitle: Callable[[Any], str] | None = None, title: Callable[[Any], str] | None = None,
+                 icon: str = "music", rect=None):
+        super().__init__(rect)
+        self.items: list = []
+        self.on_select = on_select
+        self.row_height = row_height
+        self.row_actions = row_actions or []
+        self.empty_text = empty_text
+        self.subtitle = subtitle or (lambda item: "")
+        self.title = title or str
+        self.icon = icon
+        self.scroll = 0.0
+        self.selected_key = None
+        self.key = lambda item: id(item)
+
+    def set_items(self, items: list):
+        self.items = list(items)
+        self._clamp()
+
+    def _clamp(self):
+        max_scroll = max(0, len(self.items) * self.row_height - self.rect.h)
+        self.scroll = min(max(self.scroll, 0), max_scroll)
+
+    def _row_rect(self, i: int) -> pygame.Rect:
+        return pygame.Rect(self.rect.x, int(self.rect.y + i * self.row_height - self.scroll),
+                           self.rect.w, self.row_height - 4)
+
+    def _action_rects(self, row: pygame.Rect):
+        x = row.right - 8
+        for action in reversed(self.row_actions):
+            r = pygame.Rect(0, 0, 28, 28)
+            r.midright = (x, row.centery)
+            x -= 32
+            yield action, r
+
+    def handle_event(self, event) -> bool:
+        if not self.visible:
+            return False
+        if event.type == pygame.MOUSEWHEEL and self.hovered:
+            self.scroll -= event.y * 40
+            self._clamp()
+            return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.rect.collidepoint(event.pos):
+            for i, item in enumerate(self.items):
+                row = self._row_rect(i)
+                if row.collidepoint(event.pos):
+                    for (icon, cb, _tip), ar in self._action_rects(row):
+                        if ar.collidepoint(event.pos):
+                            cb(item)
+                            return True
+                    if self.on_select:
+                        self.on_select(item)
+                    return True
+        return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
+
+    def draw(self, surf):
+        if not self.visible:
+            return
+        clip = surf.get_clip()
+        surf.set_clip(self.rect)
+        mp = mouse_pos()
+        if not self.items:
+            for k, line in enumerate(T.wrap_text(self.empty_text, 13, self.rect.w - 20)):
+                T.draw_text(surf, line, (self.rect.centerx, self.rect.y + 24 + k * 18), 13,
+                            T.TEXT_MUTED, anchor="midtop")
+        for i, item in enumerate(self.items):
+            row = self._row_rect(i)
+            if row.bottom < self.rect.y or row.y > self.rect.bottom:
+                continue
+            hovered = row.collidepoint(mp) and self.rect.collidepoint(mp)
+            selected = self.selected_key is not None and self.key(item) == self.selected_key
+            if selected or hovered:
+                pygame.draw.rect(surf, T.ACCENT_DARK if selected else T.PANEL_2, row, border_radius=10)
+            ic = pygame.Rect(row.x + 8, row.centery - 16, 32, 32)
+            pygame.draw.rect(surf, T.PANEL_3, ic, border_radius=8)
+            T.draw_icon(surf, self.icon, ic.inflate(-12, -12), T.ACCENT_HOVER if selected else T.TEXT_DIM)
+            text_w = row.w - 56 - (len(self.row_actions) * 32 if hovered else 0)
+            T.draw_text(surf, self.title(item), (row.x + 50, row.y + 8), 14, T.TEXT, bold=selected,
+                        max_width=text_w)
+            T.draw_text(surf, self.subtitle(item), (row.x + 50, row.y + 28), 12, T.TEXT_MUTED,
+                        max_width=text_w)
+            if hovered:
+                for (icon, _cb, _tip), ar in self._action_rects(row):
+                    if ar.collidepoint(mp):
+                        pygame.draw.rect(surf, T.PANEL_3, ar, border_radius=7)
+                    T.draw_icon(surf, icon, ar.inflate(-12, -12),
+                                T.DANGER if icon == "trash" and ar.collidepoint(mp) else T.TEXT)
+        surf.set_clip(clip)
+        # Scrollbar
+        content = len(self.items) * self.row_height
+        if content > self.rect.h:
+            bar_h = max(30, self.rect.h * self.rect.h / content)
+            y = self.rect.y + (self.rect.h - bar_h) * self.scroll / (content - self.rect.h)
+            pygame.draw.rect(surf, T.PANEL_3, (self.rect.right - 4, y, 4, bar_h), border_radius=2)
+
+
+# --------------------------------------------------------------- SeekBar
+
+class SeekBar(Widget):
+    """Playback position bar drawn over the track's waveform overview."""
+
+    def __init__(self, on_seek: Callable[[float], Any], rect=None):
+        super().__init__(rect)
+        self.on_seek = on_seek
+        self.duration = 0.0
+        self.position = 0.0
+        self.overview = None
+        self.dragging = False
+        self._drag_pos = 0.0
+
+    def _t_at(self, x):
+        return min(max((x - self.rect.x) / max(1, self.rect.w), 0.0), 1.0) * self.duration
+
+    def handle_event(self, event) -> bool:
+        if self.duration <= 0:
+            return False
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.inflate(0, 10).collidepoint(event.pos):
+            self.dragging = True
+            self._drag_pos = self._t_at(event.pos[0])
+            return True
+        if event.type == pygame.MOUSEMOTION and self.dragging:
+            self._drag_pos = self._t_at(event.pos[0])
+            return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.dragging:
+            self.dragging = False
+            self.on_seek(self._t_at(event.pos[0]))
+            return True
+        return False
+
+    def draw(self, surf):
+        r = self.rect
+        pos = self._drag_pos if self.dragging else self.position
+        t = pos / self.duration if self.duration > 0 else 0.0
+        split = r.x + int(r.w * t)
+        if self.overview is not None and len(self.overview):
+            n = len(self.overview)
+            bw = r.w / n
+            for i, v in enumerate(self.overview):
+                x = r.x + i * bw
+                hh = max(2, v * r.h)
+                col = T.ACCENT_HOVER if x < split else T.PANEL_3
+                pygame.draw.rect(surf, col, (x, r.centery - hh / 2, max(1, bw - 1), hh), border_radius=1)
+        else:
+            pygame.draw.rect(surf, T.PANEL_3, (r.x, r.centery - 2, r.w, 4), border_radius=2)
+            pygame.draw.rect(surf, T.ACCENT, (r.x, r.centery - 2, split - r.x, 4), border_radius=2)
+        if self.duration > 0:
+            pygame.draw.line(surf, (255, 255, 255), (split, r.y - 2), (split, r.bottom + 2), 2)
+        if self.hovered and self.duration > 0:
+            hx = mouse_pos()[0]
+            T.draw_text(surf, T.format_time(self._t_at(hx)), (hx, r.y - 6), 11, T.TEXT_DIM, anchor="midbottom")
+
+
+# --------------------------------------------------------------- Toasts
+
+class Toasts:
+    def __init__(self):
+        self.items: list[tuple[str, str, float]] = []
+
+    def show(self, message: str, kind: str = "info", seconds: float = 3.5):
+        self.items.append((message, kind, time.time() + seconds))
+        self.items = self.items[-4:]
+
+    def draw(self, surf):
+        now = time.time()
+        self.items = [t for t in self.items if t[2] > now]
+        y = surf.get_height() - 120
+        for message, kind, expires in reversed(self.items):
+            col = {"error": T.DANGER, "success": T.SUCCESS, "warning": T.WARNING}.get(kind, T.ACCENT_HOVER)
+            lines = T.wrap_text(message, 14, 420)
+            h = 22 * len(lines) + 20
+            w = max(T.text_width(l, 14) for l in lines) + 44
+            rect = pygame.Rect(0, 0, w, h)
+            rect.midbottom = (surf.get_width() // 2, y)
+            alpha = min(1.0, (expires - now) / 0.3)
+            box = pygame.Surface(rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(box, (*T.PANEL_3, int(245 * alpha)), box.get_rect(), border_radius=12)
+            pygame.draw.rect(box, (*col, int(255 * alpha)), (0, 0, 5, rect.h), border_top_left_radius=12,
+                             border_bottom_left_radius=12)
+            surf.blit(box, rect)
+            for k, line in enumerate(lines):
+                T.draw_text(surf, line, (rect.x + 22, rect.y + 10 + k * 22), 14, T.TEXT)
+            y = rect.y - 10
+
+
+# ----------------------------------------------------------------- Modal
+
+class Modal:
+    """Centered dialog. Subclasses add widgets in ``layout`` and draw content."""
+
+    width, height = 460, 300
+    title = ""
+
+    def __init__(self, app):
+        self.app = app
+        self.rect = pygame.Rect(0, 0, self.width, self.height)
+        self.widgets: list[Widget] = []
+        self.closable = True
+
+    def layout(self, screen_size):
+        self.rect.size = (self.width, self.height)
+        self.rect.center = (screen_size[0] // 2, screen_size[1] // 2)
+
+    def close(self):
+        self.app.close_modal(self)
+
+    def handle_event(self, event) -> bool:
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and self.closable:
+            self.close()
+            return True
+        for w in self.widgets:
+            if w.visible and w.handle_event(event):
+                return True
+        if event.type == pygame.MOUSEBUTTONDOWN and not self.rect.collidepoint(event.pos) and self.closable:
+            self.close()
+        return True  # modal swallows everything
+
+    def update(self, dt):
+        for w in self.widgets:
+            w.update(dt)
+
+    def draw(self, surf):
+        shade = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, 160))
+        surf.blit(shade, (0, 0))
+        T.draw_panel(surf, self.rect, T.PANEL, radius=16)
+        T.draw_text(surf, self.title, (self.rect.x + 28, self.rect.y + 24), 20, T.TEXT, bold=True)
+        self.draw_content(surf)
+        for w in self.widgets:
+            w.draw(surf)
+
+    def draw_content(self, surf):
+        pass

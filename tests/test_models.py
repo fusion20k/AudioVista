@@ -1,0 +1,120 @@
+"""Unit tests for VisualSettings, PlaybackQueue, renderers and the player clock."""
+
+import os
+
+import numpy as np
+import pygame
+import pytest
+
+from audiovista.audio.analyzer import AudioAnalyzer
+from audiovista.audio.player import AudioPlayer
+from audiovista.errors import ValidationError
+from audiovista.models import WAVE_TYPES, AudioFile, PlaybackQueue, VisualSettings
+from audiovista.visuals.engine import VisualizerEngine
+from audiovista.visuals.renderers import create_renderer
+
+
+class TestVisualSettings:
+    def test_defaults_are_valid(self):
+        s = VisualSettings().validate()
+        assert s.wave_type in WAVE_TYPES
+        assert s.primary_rgb == (0x7c, 0x5c, 0xff)
+
+    def test_round_trip_through_dict(self):
+        s = VisualSettings(color="#00e5ff", wave_type="particles", sensitivity=1.5, glow=False)
+        again = VisualSettings.from_dict(s.to_dict())
+        assert again == s
+
+    def test_from_dict_ignores_unknown_keys_and_fills_defaults(self):
+        s = VisualSettings.from_dict({"wave_type": "waveform", "something_else": 1})
+        assert s.wave_type == "waveform" and s.background == "midnight"
+
+    @pytest.mark.parametrize("bad", [
+        {"color": "red"}, {"color": "#12345"}, {"secondary_color": "#GGGGGG"},
+        {"wave_type": "spiral"}, {"background": "plaid"},
+        {"sensitivity": 5}, {"sensitivity": "high"}, {"smoothing": -0.1}, {"smoothing": 1.0},
+    ])
+    def test_invalid_values_raise(self, bad):
+        with pytest.raises(ValidationError):
+            VisualSettings.from_dict(bad)
+
+    def test_from_dict_requires_dict(self):
+        with pytest.raises(ValidationError):
+            VisualSettings.from_dict(["not", "a", "dict"])
+
+    def test_copy_changes_only_given_fields(self):
+        s = VisualSettings()
+        c = s.copy(background="ocean")
+        assert c.background == "ocean" and s.background == "midnight"
+        assert c.color == s.color
+        with pytest.raises(ValidationError):
+            s.copy(background="nope")
+
+
+class TestPlaybackQueue:
+    def test_fifo_order(self):
+        q = PlaybackQueue()
+        a, b = AudioFile("a.wav"), AudioFile("b.wav")
+        q.add(a)
+        q.add(b)
+        assert len(q) == 2
+        assert q.pop_next() is a and q.pop_next() is b
+        assert q.pop_next() is None
+
+    def test_remove_and_clear(self):
+        q = PlaybackQueue()
+        for name in "abc":
+            q.add(AudioFile(f"{name}.wav"))
+        assert q.remove(1).title == "b"
+        with pytest.raises(IndexError):
+            q.remove(5)
+        q.clear()
+        assert q.items == []
+
+
+@pytest.fixture(scope="module")
+def analyzer():
+    t = np.arange(44100 * 2) / 44100
+    return AudioAnalyzer((0.5 * np.sin(2 * np.pi * 220 * t)).astype(np.float32))
+
+
+@pytest.mark.parametrize("style", WAVE_TYPES)
+def test_every_style_renders_something(analyzer, style):
+    pygame.init()
+    engine = VisualizerEngine(analyzer, VisualSettings(wave_type=style, background="black",
+                                                       show_title=False, glow=False))
+    surface = pygame.Surface((320, 180))
+    for i in range(10):
+        engine.render(surface, 0.5 + i / 30, 1 / 30)
+    pixels = pygame.surfarray.array3d(surface)
+    assert pixels.max() > 0, "renderer drew nothing on a black background"
+
+
+def test_unknown_style_raises():
+    with pytest.raises(ValueError):
+        create_renderer("hologram")
+
+
+def test_engine_frames_count(analyzer):
+    pygame.init()
+    engine = VisualizerEngine(analyzer, VisualSettings())
+    frames = list(engine.frames((64, 36), fps=10, start=0.0, duration=1.0))
+    assert len(frames) == 10
+
+
+def test_player_clock_without_audio_device(monkeypatch):
+    player = AudioPlayer()
+    player.audio_ok = False  # run silently
+    player.load(np.zeros((44100 * 3, 2), np.float32), 44100)
+    assert player.duration == pytest.approx(3.0)
+    player.seek(1.5)
+    assert player.position == pytest.approx(1.5)
+    player.play()
+    assert player.is_playing
+    player.pause()
+    paused = player.position
+    assert 1.5 <= paused < 2.0
+    player.seek(10)  # clamped to the end
+    assert player.position == pytest.approx(3.0)
+    player.stop()
+    assert player.position == 0 and not player.is_playing
