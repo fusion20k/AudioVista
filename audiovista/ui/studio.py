@@ -78,6 +78,9 @@ class StudioScreen(Screen):
                                     lambda v: self.change_setting(smoothing=round(v, 2)))
         self.glow_toggle = Toggle("Glow", self.settings.glow, lambda v: self.change_setting(glow=v))
         self.atmos_toggle = Toggle("Haze", self.settings.atmosphere, lambda v: self.change_setting(atmosphere=v))
+        self.particles_toggle = Toggle("Particles", self.settings.particles,
+                                       lambda v: self.change_setting(particles=v))
+        self.particles_toggle.enabled = self.settings.wave_type == "circular"
         self.title_toggle = Toggle("Title", self.settings.show_title,
                                    lambda v: self.change_setting(show_title=v))
         self.save_btn = Button("Save", self.click_save, kind="secondary", icon="save")
@@ -97,7 +100,7 @@ class StudioScreen(Screen):
 
         self.settings_widgets = [self.style_group, self.color_swatches, self.color2_swatches, self.bg_group,
                                  self.sens_slider, self.smooth_slider, self.glow_toggle, self.title_toggle,
-                                 self.atmos_toggle,
+                                 self.atmos_toggle, self.particles_toggle,
                                  self.save_btn, self.export_btn]
         self.transport_widgets = [self.play_btn, self.prev_btn, self.next_btn, self.seek, self.volume,
                                   self.focus_btn]
@@ -181,11 +184,14 @@ class StudioScreen(Screen):
         # settings panel
         pxx, pw = self.panel.x + px(20), RIGHT_W - px(40)
         y = TOP_H + px(48)
-        for group, gap in ((self.style_group, 34), (self.color_swatches, 34), (self.color2_swatches, 34),
+        for group, gap in ((self.style_group, 10), (self.color_swatches, 34), (self.color2_swatches, 34),
                            (self.bg_group, 38)):
             group.rect = pygame.Rect(pxx, y, pw, 0)
             group.rect.h = group.height
             y = group.rect.bottom + px(gap)
+            if group is self.style_group:
+                self.particles_toggle.rect = pygame.Rect(pxx, y, pw, px(30))
+                y = self.particles_toggle.rect.bottom + px(34)
         self.sens_slider.rect = pygame.Rect(pxx + px(4), y, pw - px(8), px(16))
         y += px(44)
         self.smooth_slider.rect = pygame.Rect(pxx + px(4), y, pw - px(8), px(16))
@@ -360,6 +366,7 @@ class StudioScreen(Screen):
     # -------------------------------------------------------------- settings
     def change_setting(self, **changes):
         self.settings = self.settings.copy(**changes)
+        self.particles_toggle.enabled = self.settings.wave_type == "circular"
         vis = self.app.session.get_current_visualization()
         if vis is not None:
             vis.update_settings(**changes)
@@ -377,6 +384,8 @@ class StudioScreen(Screen):
         self.glow_toggle.value = s.glow
         self.title_toggle.value = s.show_title
         self.atmos_toggle.value = s.atmosphere
+        self.particles_toggle.value = s.particles
+        self.particles_toggle.enabled = s.wave_type == "circular"
 
     def click_save(self):
         if self.app.session.get_current_visualization() is None:

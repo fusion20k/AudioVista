@@ -4,6 +4,7 @@ requestGenerate, clickSave, clickExport, renderPreview)."""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import queue
 import sys
@@ -117,6 +118,20 @@ class AudioVistaUI:
                 winshell.write_ico(ico, [T.render_logo(s) for s in (16, 24, 32, 48, 64, 128, 256)])
             except OSError:
                 pass
+        # Windows caches taskbar icons by file path, so a redesigned logo saved
+        # under the same name keeps showing the old picture. Use a copy whose
+        # name contains a hash of its contents: a new logo means a new path.
+        try:
+            data = ico.read_bytes()
+            versioned = config.data_dir() / "icons" / f"audiovista-{hashlib.sha1(data).hexdigest()[:10]}.ico"
+            if not versioned.is_file():
+                versioned.parent.mkdir(parents=True, exist_ok=True)
+                for old in versioned.parent.glob("audiovista-*.ico"):
+                    old.unlink(missing_ok=True)
+                versioned.write_bytes(data)
+            ico = versioned
+        except OSError:
+            pass
         launcher = Path(sys.executable).with_name("pythonw.exe")
         exe = launcher if launcher.exists() else Path(sys.executable)
         winshell.set_window_icon(hwnd, ico)

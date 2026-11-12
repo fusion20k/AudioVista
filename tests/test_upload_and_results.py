@@ -139,7 +139,7 @@ def test_export_rejects_bad_options(db, session, uploads, tone_wav, tmp_path):
 
 def test_export_writes_mp4(db, session, uploads, tmp_path):
     uploads.upload_audio(make_tone(tmp_path / "short.wav", seconds=1.5))
-    VisualizerController(session).generate_visuals("particles")
+    VisualizerController(session).generate_visuals("circular")
     vid = ResultController(db, session).save_result("Export me")
     progress = []
     export = ExportController(db, session).export_result(

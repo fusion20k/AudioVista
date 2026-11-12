@@ -1,20 +1,19 @@
-"""Visualizer styles - clean, modern and always moving.
+"""Visualizer styles - clean and modern, built like small machines with moving parts.
 
-* bars      - Spectrum: mirrored rounded bars (bass in the middle) with falling
-              peak caps and a soft reflection.
-* waveform  - Waveform: the real waveform scrolling past a playhead (played part
-              bright, upcoming part faint) over flowing bass/mid/treble waves.
-* circular  - Radial: a slowly turning ring of spectrum bars around a pulsing
-              core, orbiting dots and shockwave rings on the beat.
-* meters    - Rings: three arc gauges for bass, mids and treble with spinning
-              dash rings whose speed follows each band.
-* particles - Particles: hundreds of particles flowing through a swirling field;
-              the music speeds them up and beats burst them outwards.
+* bars      - Spectrum: mirrored piston bars (bass in the middle) riding in slots,
+              sliding peak markers, and a gear train under the floor that the
+              bass drives.
+* waveform  - Waveform: the real waveform runs like a film strip between two
+              sprocket gears, past a scanner head whose needle follows the
+              signal; the sprocket holes and ruler ticks move with the music.
+* circular  - Radial: a spectrum ring mounted on a planetary gearbox - sun gear,
+              three planets and a ring gear that really mesh - with shockwave
+              rings on the beat and optional swirling particles.
 
-``draw_backdrop`` paints translucent parts straight onto the frame (cheap and
-blends correctly); ``draw`` paints the bright parts onto a transparent layer
-that the engine blooms. All motion depends only on the analysis frame and
-``dt``, so exported videos match the live preview.
+``draw_backdrop`` paints the machinery straight onto the frame (translucent
+parts blend correctly there and stay out of the glow); ``draw`` paints the
+bright, music-driven parts onto a layer that the engine blooms. All motion
+depends only on the analysis frame and ``dt``, so exports match the preview.
 """
 
 from __future__ import annotations
@@ -30,6 +29,7 @@ from ..models import VisualSettings
 
 TAU = 2 * math.pi
 WHITE = (255, 250, 244)
+STEEL = (210, 214, 236)
 
 
 # ------------------------------------------------------------------ helpers
@@ -79,39 +79,27 @@ def aa_poly(surf, color, pts) -> None:
     gfx.aapolygon(surf, pts, color)
 
 
-def arc_points(cx, cy, r, a0, a1, steps):
-    return [(cx + math.cos(a) * r, cy + math.sin(a) * r) for a in np.linspace(a0, a1, max(2, steps))]
+def gear_points(cx, cy, r, teeth: int, angle: float, depth: float = 0.16):
+    """Outline of a spur gear with *teeth* trapezoid teeth, pitch radius *r*."""
+    pts = []
+    ro, ri = r * (1 + depth / 2), r * (1 - depth / 2)
+    step = TAU / teeth
+    for i in range(teeth):
+        a = angle + i * step
+        for f, rr in ((0.0, ri), (0.18, ro), (0.50, ro), (0.68, ri)):
+            pts.append((cx + math.cos(a + f * step) * rr, cy + math.sin(a + f * step) * rr))
+    return pts
 
 
-def thick_arc(surf, color, center, r, width, a0, a1) -> None:
-    """Anti-aliased arc band from angle a0 to a1 (radians) with round ends."""
-    if a1 - a0 < 1e-3:
-        return
-    steps = max(4, int((a1 - a0) * r / 6))
-    outer = arc_points(center[0], center[1], r + width / 2, a0, a1, steps)
-    inner = arc_points(center[0], center[1], r - width / 2, a1, a0, steps)
-    aa_poly(surf, color, outer + inner)
-    for a in (a0, a1):
-        aa_circle(surf, color, (center[0] + math.cos(a) * r, center[1] + math.sin(a) * r), width / 2)
-
-
-class Spring:
-    """Damped spring so gauges sweep and settle smoothly instead of jumping."""
-
-    def __init__(self, stiffness: float = 120.0, damping: float = 14.0):
-        self.k, self.c = stiffness, damping
-        self.x = 0.0
-        self.v = 0.0
-
-    def update(self, target: float, dt: float) -> float:
-        if dt <= 0.0015:
-            return self.x
-        steps = max(1, int(dt / 0.004))
-        h = dt / steps
-        for _ in range(steps):
-            self.v += (self.k * (target - self.x) - self.c * self.v) * h
-            self.x += self.v * h
-        return self.x
+def gear(surf, cx, cy, r, teeth, angle, body, hub, spokes: int = 5) -> None:
+    """A gear with a hub and round lightening holes that turn with it."""
+    aa_poly(surf, body, gear_points(cx, cy, r, teeth, angle))
+    if r > 10 and spokes:
+        for k in range(spokes):
+            a = angle + k * TAU / spokes
+            aa_circle(surf, hub, (cx + math.cos(a) * r * 0.55, cy + math.sin(a) * r * 0.55), r * 0.17)
+    aa_circle(surf, hub, (cx, cy), r * 0.24)
+    aa_circle(surf, body, (cx, cy), r * 0.11)
 
 
 class BaseRenderer:
@@ -129,7 +117,7 @@ class BaseRenderer:
 
     def draw_backdrop(self, target: pygame.Surface, frame: AnalysisFrame, settings: VisualSettings,
                       dt: float) -> None:
-        """Optional: translucent parts drawn straight onto the frame, under the glow layer."""
+        """Optional: machinery drawn straight onto the frame, under the glow layer."""
 
     def levels(self, frame: AnalysisFrame, settings: VisualSettings, dt: float) -> np.ndarray:
         """Band levels after sensitivity and attack/decay smoothing (once per frame)."""
@@ -163,70 +151,87 @@ class BaseRenderer:
 
 class SpectrumRenderer(BaseRenderer):
     style = "bars"
-    PER_SIDE = 36
+    PER_SIDE = 32
 
     def __init__(self):
         super().__init__()
         self.peaks: np.ndarray | None = None
         self.peak_v: np.ndarray | None = None
+        self.drive = 0.0
 
     def reset(self):
         super().reset()
         self.peaks = None
-
-    def _bars(self, frame, s, dt):
-        lv = resample(self.levels(frame, s, dt), self.PER_SIDE)
-        if self.peaks is None:
-            self.peaks = lv.copy()
-            self.peak_v = np.zeros_like(lv)
-        elif dt > 0.0015 and frame is not getattr(self, "_peak_frame", None):
-            self._peak_frame = frame
-            self.peak_v += dt * 1.6                       # peaks fall with gravity
-            self.peaks = self.peaks - self.peak_v * dt
-            hit = lv >= self.peaks
-            self.peaks[hit] = lv[hit]
-            self.peak_v[hit] = 0.0
-        return lv
+        self.drive = 0.0
 
     def _geometry(self, w, h):
         n = self.PER_SIDE * 2
-        span = w * 0.88
-        step = span / n
-        bw = max(2, int(step * 0.62))
-        floor = h * 0.70
-        max_h = h * 0.52
+        step = w * 0.86 / n
+        bw = max(3, int(step * 0.58))
+        floor = h * 0.66
+        max_h = h * 0.50
         xs = [w / 2 + (i + 0.5) * step * side for side in (-1, 1) for i in range(self.PER_SIDE)]
         return xs, bw, floor, max_h
 
     def draw_backdrop(self, target, frame, s, dt):
         w, h = target.get_size()
-        lv = self._bars(frame, s, dt)
+        u = min(w, h)
+        lv = resample(self.levels(frame, s, dt), self.PER_SIDE)
+        bass = float(lv[: self.PER_SIDE // 4].mean())
+        if self.peaks is None:
+            self.peaks, self.peak_v = lv.copy(), np.zeros_like(lv)
+        elif dt > 0.0015:
+            self.drive += dt * (0.4 + 5.0 * bass + 1.5 * frame.beat)
+            self.peak_v += dt * 1.6                       # markers fall back with gravity
+            self.peaks = self.peaks - self.peak_v * dt
+            hit = lv >= self.peaks
+            self.peaks[hit], self.peak_v[hit] = lv[hit], 0.0
         xs, bw, floor, max_h = self._geometry(w, h)
         c1, c2 = s.primary_rgb, s.secondary_rgb
-        # soft reflection under the floor line
+        # the slots the pistons ride in, with a sliding peak marker on each
         for i, x in enumerate(xs):
-            v = lv[i % self.PER_SIDE]
-            rh = int(max_h * (0.02 + v) * 0.35)
-            if rh > 1:
-                gfx.box(target, (int(x - bw / 2), int(floor + 6), bw, rh),
-                        (*lerp_color(c1, c2, v * 0.6), 46))
-        gfx.hline(target, int(w * 0.05), int(w * 0.95), int(floor + 3), (*WHITE, 40))
+            j = i % self.PER_SIDE
+            slot = pygame.Rect(int(x - bw / 2 - 2), int(floor - max_h - bw), bw + 4, int(max_h + bw))
+            gfx.box(target, slot, (*WHITE, 16))
+            py = floor - max_h * (0.03 + float(self.peaks[j])) - bw
+            gfx.box(target, (slot.x - 2, int(py), slot.w + 4, max(2, bw // 3)), (*lerp_color(c2, WHITE, 0.4), 150))
+        # deck plate and the gear train underneath, driven by the bass
+        gfx.box(target, (int(w * 0.05), int(floor + 2), int(w * 0.90), max(3, int(u * 0.012))), (*STEEL, 70))
+        gy = floor + u * 0.012 + (h - floor) * 0.42
+        body, hub = (*lerp_color(c1, STEEL, 0.45), 120), (*scale_color(c1, 0.35), 160)
+        pitch = u * 0.012                                  # tooth spacing shared by all gears
+        x, prev_r, sign, phase = w * 0.06, None, 1, 0.0
+        radii = [u * f for f in (0.075, 0.045, 0.075, 0.045, 0.060, 0.045, 0.075, 0.045, 0.075)]
+        k = 0
+        while x < w * 1.05:
+            r = radii[k % len(radii)]
+            teeth = max(8, int(TAU * r / pitch))
+            if prev_r is not None:
+                x += prev_r + r
+            ang = sign * self.drive * (u * 0.06) / r + phase
+            gear(target, x, gy, r, teeth, ang, body, hub)
+            sign, prev_r, phase, k = -sign, r, phase + 0.5 * TAU / teeth, k + 1
 
     def draw(self, layer, frame, s, dt):
         w, h = layer.get_size()
-        lv = self._bars(frame, s, dt)
+        lv = resample(self.levels(frame, s, dt), self.PER_SIDE)
         xs, bw, floor, max_h = self._geometry(w, h)
         c1, c2 = s.primary_rgb, s.secondary_rgb
         r = bw // 2
+        rod = max(2, bw // 4)
         for i, x in enumerate(xs):
             j = i % self.PER_SIDE
             v = float(lv[j])
-            bh = max(bw, int(max_h * (0.02 + v)))
+            top = floor - max_h * (0.03 + v)
             col = lerp_color(c1, c2, (j / (self.PER_SIDE - 1)) ** 1.3)
-            pygame.draw.rect(layer, col, (int(x - bw / 2), int(floor - bh), bw, bh), border_radius=r)
-            py = floor - max_h * (0.02 + float(self.peaks[j])) - bw * 1.2
-            pygame.draw.rect(layer, lerp_color(col, WHITE, 0.6),
-                             (int(x - bw / 2), int(py), bw, max(2, bw // 3)), border_radius=max(1, r // 2))
+            head_h = max(bw, int(bw * 1.4))
+            # piston rod from the deck up to the head, then the head itself
+            pygame.draw.rect(layer, scale_color(col, 0.75), (int(x - rod / 2), int(top), rod, int(floor - top)))
+            pygame.draw.rect(layer, col, (int(x - bw / 2), int(top), bw, int(min(head_h + (floor - top) * 0.55,
+                                                                                 floor - top + 1))),
+                             border_radius=r)
+            pygame.draw.rect(layer, lerp_color(col, WHITE, 0.7), (int(x - bw / 2), int(top), bw, max(2, bw // 3)),
+                             border_radius=max(1, r // 2))
 
 
 # --------------------------------------------------------------- Waveform
@@ -238,255 +243,236 @@ class WaveformRenderer(BaseRenderer):
 
     def __init__(self):
         super().__init__()
-        self.phase = 0.0
+        self.needle = 0.0
 
     def reset(self):
         super().reset()
-        self.phase = 0.0
+        self.needle = 0.0
+
+    def _geometry(self, w, h):
+        u = min(w, h)
+        cy = h * 0.46
+        amp = h * 0.24
+        spacing = w / (self.BUCKETS - 4)
+        return u, cy, amp, spacing
 
     def draw_backdrop(self, target, frame, s, dt):
-        """Three flowing translucent waves along the bottom, one per band group."""
+        """The film-strip transport: rails with sprocket holes, sprocket gears, ruler."""
         w, h = target.get_size()
-        lv = self.levels(frame, s, dt)
-        if dt > 0.0015:
-            self.phase += dt * (0.6 + 1.2 * frame.volume)
-        bass, mid, treble = self.bands3(lv)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        n = 90
-        xs = np.linspace(0, w, n)
-        u = xs / w
-        for k, (band, col, base, freq, speed) in enumerate(
-                ((treble, c2, 0.80, 3.1, 1.3), (mid, lerp_color(c1, c2, 0.5), 0.84, 2.2, -0.9),
-                 (bass, c1, 0.88, 1.4, 0.6))):
-            amp = h * (0.025 + 0.09 * band)
-            ys = h * base - amp * (np.sin(TAU * freq * u + self.phase * speed + k)
-                                   * (0.7 + 0.3 * np.sin(TAU * u * 0.7 - self.phase * 0.5)))
-            pts = [(0, h)] + list(zip(xs.tolist(), ys.tolist())) + [(w, h)]
-            gfx.filled_polygon(target, pts, (*col, 60))
-            pygame.draw.aalines(target, lerp_color(col, WHITE, 0.2), False, pts[1:-1])
+        u, cy, amp, spacing = self._geometry(w, h)
+        c1 = s.primary_rgb
+        scroll = frame.time / self.BUCKET_SECONDS * spacing     # px the strip has moved
+        rail_h = max(6, int(u * 0.035))
+        steel = (*STEEL, 60)
+        hole_col = lerp_color(c1, WHITE, 0.5)
+        pitch = u * 0.05
+        hole_w, hole_h = int(pitch * 0.45), max(3, int(rail_h * 0.45))
+        for ry in (cy - amp * 1.18 - rail_h, cy + amp * 1.18):
+            gfx.box(target, (0, int(ry), w, rail_h), steel)
+            x = -(scroll % pitch)
+            while x < w:
+                gfx.box(target, (int(x), int(ry + (rail_h - hole_h) / 2), hole_w, hole_h), (*hole_col, 120))
+                x += pitch
+        # sprocket gears at both ends, turning exactly with the strip
+        gr = amp * 1.18 + rail_h * 0.5
+        teeth = max(10, int(TAU * gr / pitch))
+        ang = scroll / gr
+        body, hub = (*lerp_color(c1, STEEL, 0.5), 110), (*scale_color(c1, 0.35), 150)
+        for gx in (0.0, float(w)):
+            gear(target, gx, cy, gr * 0.9, teeth, -ang, body, hub, spokes=6)
+        # ruler under the strip: one tick per bucket, a long one every second
+        ry = cy + amp * 1.18 + rail_h + u * 0.03
+        first = int((frame.time - w / 2 / spacing * self.BUCKET_SECONDS) / self.BUCKET_SECONDS) - 1
+        per_sec = max(1, int(round(1 / self.BUCKET_SECONDS)))
+        for j in range(first, first + self.BUCKETS + 4):
+            x = w / 2 + (j * self.BUCKET_SECONDS - frame.time) / self.BUCKET_SECONDS * spacing
+            if 0 <= x <= w and j >= 0:
+                long = j % per_sec == 0
+                gfx.vline(target, int(x), int(ry), int(ry + u * (0.03 if long else 0.012)),
+                          (*STEEL, 110 if long else 50))
 
     def draw(self, layer, frame, s, dt):
         w, h = layer.get_size()
-        u = min(w, h)
+        u, cy, amp, spacing = self._geometry(w, h)
         c1, c2 = s.primary_rgb, s.secondary_rgb
         n, bs = self.BUCKETS, self.BUCKET_SECONDS
-        spacing = w / (n - 4)
         pos = frame.time / bs
         first = int(math.floor(pos)) - n // 2 - 1
         env = (self.analyzer.envelope_buckets(first, n + 2, bs) if self.analyzer is not None
                else np.zeros(n + 2, np.float32))
-        cy = h * 0.42
-        amp = h * 0.25
         bw = max(2, int(spacing * 0.55))
         cx = w / 2
         dim = scale_color(c2, 0.55)
+        now = 0.0
         for j, e in enumerate(env.tolist()):
             x = cx + (first + j + 0.5 - pos) * spacing
             if x < -bw or x > w + bw:
                 continue
-            hh = max(bw, amp * e * (1 + 0.06 * frame.beat))
-            played = x < cx
-            col = lerp_color(c1, WHITE, 0.15 * frame.beat) if played else dim
+            hh = max(bw, amp * e)
+            if abs(x - cx) < spacing:
+                now = max(now, e)
+            col = c1 if x < cx else dim
             pygame.draw.rect(layer, col, (int(x - bw / 2), int(cy - hh), bw, int(hh * 2)), border_radius=bw // 2)
-        # playhead
-        aa_line(layer, WHITE, (cx, cy - amp * 1.12), (cx, cy + amp * 1.12), max(1.5, u / 400))
-        aa_circle(layer, WHITE, (cx, cy - amp * 1.12), max(3, u * 0.008))
-        # the live oscilloscope trace across the middle
-        wave = resample(frame.waveform, 200)
-        xs = np.linspace(w * 0.05, w * 0.95, len(wave))
-        ys = cy + wave * amp * 0.35
-        pygame.draw.aalines(layer, lerp_color(c1, WHITE, 0.5), False, list(zip(xs.tolist(), ys.tolist())))
+        # scanner head: a carriage on the top rail, a spinning drive gear and a
+        # pair of needles that close in on the current level
+        if dt > 0.0015:
+            self.needle += (now - self.needle) * (1 - 0.05 ** dt)
+        top = cy - amp * 1.18
+        head_w = u * 0.05
+        pygame.draw.rect(layer, STEEL, (int(cx - head_w / 2), int(top - u * 0.065), int(head_w), int(u * 0.045)),
+                         border_radius=int(u * 0.008))
+        gear(layer, cx, top - u * 0.088, u * 0.026, 10, frame.time * 4.0, lerp_color(c1, STEEL, 0.4),
+             scale_color(c1, 0.4), spokes=0)
+        aa_line(layer, WHITE, (cx, top - u * 0.02), (cx, cy + amp * 1.18), max(1.5, u / 420))
+        ny = amp * max(0.02, self.needle)
+        for sgn in (-1, 1):
+            y = cy - sgn * ny
+            aa_poly(layer, WHITE, [(cx - u * 0.016, y - sgn * u * 0.022), (cx + u * 0.016, y - sgn * u * 0.022),
+                                   (cx, y)])
 
 
 # ------------------------------------------------------------------ Radial
 
-class RadialRenderer(BaseRenderer):
-    style = "circular"
-    BARS = 64   # per side; the ring is mirrored left/right
+class ParticleField:
+    """Particles swirling around the centre through a smooth flow field."""
+
+    COUNT = 360
 
     def __init__(self):
-        super().__init__()
-        self.spin = 0.0
-        self.orbit = [0.0, 2.0, 4.0]
-
-    def reset(self):
-        super().reset()
-        self.spin = 0.0
-        self.orbit = [0.0, 2.0, 4.0]
-
-    def draw_backdrop(self, target, frame, s, dt):
-        w, h = target.get_size()
-        u = min(w, h)
-        cx, cy = w / 2, h / 2
-        c1 = s.primary_rgb
-        R = u * 0.17 * (1 + 0.08 * frame.bass)
-        aa_circle(target, (*c1, 26), (cx, cy), R * 0.98)
-        # shockwave rings spreading out after each beat
-        if self.analyzer is not None:
-            for age in self.analyzer.recent_beats(frame.time, 1.6).tolist():
-                rr = R + age * u * 0.32
-                a = int(110 * (1 - age / 1.6))
-                if a > 4:
-                    gfx.aacircle(target, int(cx), int(cy), int(rr), (*lerp_color(c1, WHITE, 0.4), a))
-
-    def draw(self, layer, frame, s, dt):
-        w, h = layer.get_size()
-        u = min(w, h)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        bass, mid, treble = self.bands3(lv)
-        if dt > 0.0015:
-            self.spin += dt * (0.08 + 0.5 * frame.volume)
-            for i, band in enumerate((bass, mid, treble)):
-                self.orbit[i] += dt * (0.5 + 0.4 * i) * (0.4 + 2.5 * band) * (1 if i % 2 == 0 else -1)
-        cx, cy = w / 2, h / 2
-        R = u * 0.17 * (1 + 0.08 * bass)
-        bars = resample(lv, self.BARS)
-        width = max(2.0, R * TAU / (self.BARS * 2) * 0.55)
-        for side in (-1, 1):
-            for i, v in enumerate(bars.tolist()):
-                a = -math.pi / 2 + side * (i + 0.5) / self.BARS * math.pi
-                L = u * (0.012 + 0.22 * v)
-                ca, sa = math.cos(a), math.sin(a)
-                col = lerp_color(c1, c2, i / (self.BARS - 1))
-                r0 = R * 1.08
-                aa_line(layer, col, (cx + ca * r0, cy + sa * r0), (cx + ca * (r0 + L), cy + sa * (r0 + L)), width)
-        # core
-        gfx.aacircle(layer, int(cx), int(cy), int(R), (*lerp_color(c1, WHITE, 0.3), 255))
-        for d in range(24):   # slowly turning dotted ring inside the bars
-            a = self.spin + d * TAU / 24
-            aa_circle(layer, lerp_color(c1, c2, 0.5), (cx + math.cos(a) * R * 0.86, cy + math.sin(a) * R * 0.86),
-                      max(1.5, u * 0.003))
-        aa_circle(layer, lerp_color(c1, c2, 0.5), (cx, cy), R * (0.30 + 0.25 * bass + 0.1 * frame.beat))
-        aa_circle(layer, lerp_color(c1, WHITE, 0.6), (cx, cy), R * (0.12 + 0.1 * frame.beat))
-        # orbiting dots
-        for i, (ang, band) in enumerate(zip(self.orbit, (bass, mid, treble))):
-            rr = R * (0.55 + 0.14 * i)
-            x, y = cx + math.cos(ang) * rr, cy + math.sin(ang) * rr
-            aa_circle(layer, (c1, lerp_color(c1, c2, 0.5), c2)[i], (x, y), u * (0.006 + 0.008 * band))
-
-
-# ------------------------------------------------------------------- Rings
-
-class RingsRenderer(BaseRenderer):
-    style = "meters"
-    START, SWEEP = math.radians(135), math.radians(270)
-
-    def __init__(self):
-        super().__init__()
-        self.springs = [Spring(), Spring(), Spring()]
-        self.spin = [0.0, 0.0, 0.0]
-
-    def reset(self):
-        super().reset()
-        self.springs = [Spring(), Spring(), Spring()]
-        self.spin = [0.0, 0.0, 0.0]
-
-    @staticmethod
-    def _geometry(w, h):
-        u = min(w, h)
-        return (w / 2, h / 2), [u * 0.40, u * 0.31, u * 0.22], max(4.0, u * 0.035)
-
-    def draw_backdrop(self, target, frame, s, dt):
-        w, h = target.get_size()
-        c, radii, width = self._geometry(w, h)
-        for r in radii:   # dim tracks behind the gauges
-            thick_arc(target, (*WHITE, 22), c, r, width, self.START, self.START + self.SWEEP)
-
-    def draw(self, layer, frame, s, dt):
-        w, h = layer.get_size()
-        u = min(w, h)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        lv = self.levels(frame, s, dt)
-        bands = self.bands3(lv)
-        (cx, cy), radii, width = self._geometry(w, h)
-        for i, (r, band) in enumerate(zip(radii, bands)):
-            col = lerp_color(c1, c2, i / 2)
-            v = clamp01(self.springs[i].update(clamp01(band * 1.15), dt))
-            thick_arc(layer, col, (cx, cy), r, width, self.START, self.START + self.SWEEP * max(0.01, v))
-            tip = self.START + self.SWEEP * v
-            aa_circle(layer, lerp_color(col, WHITE, 0.6), (cx + math.cos(tip) * r, cy + math.sin(tip) * r),
-                      width * 0.32)
-            # spinning dash ring just inside each gauge
-            if dt > 0.0015:
-                self.spin[i] += dt * (0.2 + 3.0 * band) * (1 if i % 2 == 0 else -1)
-            rd = r - width * 1.15
-            dashes = 36
-            dcol = scale_color(col, 0.45 + 0.55 * band)
-            for d in range(dashes):
-                a = self.spin[i] + d * TAU / dashes
-                a0, a1 = a, a + TAU / dashes * 0.45
-                aa_line(layer, dcol, (cx + math.cos(a0) * rd, cy + math.sin(a0) * rd),
-                        (cx + math.cos(a1) * rd, cy + math.sin(a1) * rd), max(1.5, width * 0.18))
-        # centre: beat pulse
-        pr = radii[-1] * (0.28 + 0.18 * frame.beat + 0.1 * frame.volume)
-        aa_circle(layer, lerp_color(c1, c2, 0.5), (cx, cy), pr)
-        aa_circle(layer, lerp_color(c1, WHITE, 0.7), (cx, cy), pr * 0.45)
-
-
-# --------------------------------------------------------------- Particles
-
-class ParticlesRenderer(BaseRenderer):
-    style = "particles"
-    COUNT = 420
-
-    def __init__(self, seed: int = 1234):
-        super().__init__()
-        self.rng = np.random.default_rng(seed)
-        self.reset()
-
-    def reset(self):
-        super().reset()
         rng = np.random.default_rng(1234)
         n = self.COUNT
-        self.x = rng.random(n)
-        self.y = rng.random(n)
-        self.vx = np.zeros(n)
-        self.vy = np.zeros(n)
+        self.x, self.y = rng.random(n), rng.random(n)
+        self.vx, self.vy = np.zeros(n), np.zeros(n)
         self.hue = rng.random(n)
         self.size = rng.random(n) ** 2
         self.t = 0.0
 
+    def update(self, frame, mid, aspect, dt):
+        if dt <= 0.0015:
+            return
+        self.t += dt
+        t = self.t
+        # curl of a moving potential (no sinks, so the particles stay spread out)
+        # plus a gentle orbit around the centre
+        px, py = self.x * aspect * TAU + t * 0.15, self.y * TAU - t * 0.1
+        fx = np.cos(px) * np.cos(py) + 0.5 * np.cos(py * 2 + t * 0.3)
+        fy = np.sin(px) * np.sin(py) - 0.5 * np.cos(px * 2 - t * 0.2)
+        dx, dy = (self.x - 0.5) * aspect, self.y - 0.5
+        fx, fy = fx * 0.6 - dy * 1.6, fy * 0.6 + dx * 1.6
+        speed = 0.03 + 0.14 * frame.volume + 0.06 * mid
+        self.vx += (fx * speed / aspect - self.vx) * min(1.0, dt * 3)
+        self.vy += (fy * speed - self.vy) * min(1.0, dt * 3)
+        self.x = (self.x + self.vx * dt) % 1.0
+        self.y = (self.y + self.vy * dt) % 1.0
+
+    def draw(self, layer, frame, c1, c2, bass, treble, u):
+        w, h = layer.get_size()
+        aspect = w / h
+        dx, dy = (self.x - 0.5) * aspect, self.y - 0.5
+        push = 1 + 0.08 * frame.beat * (0.5 + bass)     # beats make the swarm breathe out
+        xs = (0.5 + dx * push / aspect) * w
+        ys = (0.5 + dy * push) * h
+        lift = 0.1 + 0.3 * treble
+        for x, y, hue, sz in zip(xs.tolist(), ys.tolist(), self.hue.tolist(), self.size.tolist()):
+            col = lerp_color(lerp_color(c1, c2, hue), WHITE, lift + 0.3 * sz)   # never darker than the sky
+            aa_circle(layer, col, (x, y), max(2.0, u * 0.0028 * (1 + 2 * sz) * (1 + 0.4 * bass)))
+
+
+class RadialRenderer(BaseRenderer):
+    style = "circular"
+    BARS = 56           # per side; the ring is mirrored left/right
+    # planetary gearbox: sun, planet and ring tooth counts (ring = sun + 2 * planet)
+    Z_SUN, Z_PLANET, Z_RING = 14, 8, 30
+
+    def __init__(self):
+        super().__init__()
+        self.sun = 0.0
+        self.housing = 0.0
+        self.particles = ParticleField()
+
+    def reset(self):
+        super().reset()
+        self.sun = 0.0
+        self.housing = 0.0
+        self.particles = ParticleField()
+
+    @staticmethod
+    def _R(u):
+        return u * 0.19
+
+    def draw_backdrop(self, target, frame, s, dt):
+        w, h = target.get_size()
+        u = min(w, h)
+        c1, c2 = s.primary_rgb, s.secondary_rgb
+        lv = self.levels(frame, s, dt)
+        bass, mid, treble = self.bands3(lv)
+        if dt > 0.0015:
+            self.sun += dt * (0.5 + 6.0 * bass + 2.0 * frame.beat)
+            self.housing -= dt * (0.05 + 0.25 * treble)
+        cx, cy = w / 2, h / 2
+        R = self._R(u)
+        # shockwave rings spreading out after each beat
+        if self.analyzer is not None:
+            for age in self.analyzer.recent_beats(frame.time, 1.6).tolist():
+                a = int(110 * (1 - age / 1.6))
+                if a > 4:
+                    gfx.aacircle(target, int(cx), int(cy), int(R * 1.1 + age * u * 0.3),
+                                 (*lerp_color(c1, WHITE, 0.4), a))
+        # Planetary gearbox. With the ring held, the carrier turns at
+        # sun * Zs / (Zs + Zr) and each planet spins backwards against the ring.
+        m = R * 0.80 / self.Z_RING                  # gear module (size per tooth)
+        zs, zp, zr = self.Z_SUN, self.Z_PLANET, self.Z_RING
+        g = self.housing                            # the whole gearbox turns slowly
+        carrier = self.sun * zs / (zs + zr)
+        planet = carrier - carrier * zr / zp
+        body = (*lerp_color(c1, STEEL, 0.45), 130)
+        hub = (*scale_color(c1, 0.3), 170)
+        # ring gear: a band with teeth pointing inwards
+        r_in, r_out = zr * m, R * 0.97
+        for k in range(zr):
+            a = g + k * TAU / zr
+            pts = []
+            for f, rr in ((-0.32, r_in * 1.01), (-0.16, r_in * 0.92), (0.16, r_in * 0.92), (0.32, r_in * 1.01)):
+                aa = a + f * TAU / zr
+                pts.append((cx + math.cos(aa) * rr, cy + math.sin(aa) * rr))
+            aa_poly(target, body, pts)
+        outer = [(cx + math.cos(a) * r_out, cy + math.sin(a) * r_out) for a in np.linspace(0, TAU, 96)]
+        inner = [(cx + math.cos(a) * r_in, cy + math.sin(a) * r_in) for a in np.linspace(TAU, 0, 96)]
+        aa_poly(target, body, outer + inner)
+        orbit = (zs + zp) * m
+        for i in range(3):
+            a = g + carrier + i * TAU / 3
+            gear(target, cx + math.cos(a) * orbit, cy + math.sin(a) * orbit, zp * m, zp, g + planet + i * 0.4,
+                 body, hub, spokes=3)
+        gear(target, cx, cy, zs * m, zs, g + self.sun, (*lerp_color(c2, STEEL, 0.4), 150), hub, spokes=4)
+
     def draw(self, layer, frame, s, dt):
         w, h = layer.get_size()
         u = min(w, h)
         c1, c2 = s.primary_rgb, s.secondary_rgb
         lv = self.levels(frame, s, dt)
         bass, mid, treble = self.bands3(lv)
-        aspect = w / h
-        if dt > 0.0015:
-            self.t += dt
-            t = self.t
-            # Velocity = curl of a slowly moving potential (worked out in screen-shaped
-            # units): a swirl with no sinks, so the particles stay evenly spread.
-            px, py = self.x * aspect * TAU + t * 0.15, self.y * TAU - t * 0.1
-            fx = np.cos(px) * np.cos(py) + 0.5 * np.cos(py * 2 + t * 0.3)
-            fy = np.sin(px) * np.sin(py) - 0.5 * np.cos(px * 2 - t * 0.2)
-            speed = 0.03 + 0.16 * frame.volume + 0.08 * mid
-            self.vx += (fx * speed / aspect - self.vx) * min(1.0, dt * 3)
-            self.vy += (fy * speed - self.vy) * min(1.0, dt * 3)
-            self.x = (self.x + self.vx * dt) % 1.0
-            self.y = (self.y + self.vy * dt) % 1.0
-        # beats make the whole field "breathe out" from the centre for a moment
-        dx, dy = (self.x - 0.5) * aspect, self.y - 0.5
-        push = 1 + 0.10 * frame.beat * (0.5 + bass)
-        xs = (0.5 + dx * push / aspect) * w
-        ys = (0.5 + dy * push) * h
-        tail = 0.08 + 0.1 * frame.volume
-        base_r = u * 0.0032
-        bright = 0.55 + 0.45 * treble
-        for x, y, vx, vy, hue, sz in zip(xs.tolist(), ys.tolist(), self.vx.tolist(), self.vy.tolist(),
-                                          self.hue.tolist(), self.size.tolist()):
-            col = scale_color(lerp_color(c1, c2, hue), bright + 0.3 * sz)
-            r = base_r * (1 + 2.2 * sz) * (1 + 0.5 * bass)
-            ex, ey = x - vx * w * tail, y - vy * h * tail
-            if sz > 0.25 and abs(ex - x) + abs(ey - y) > 3 and abs(ex - x) < w / 2 and abs(ey - y) < h / 2:
-                pygame.draw.aaline(layer, col, (ex, ey), (x, y))
-            aa_circle(layer, col, (x, y), max(2.0, r))
+        cx, cy = w / 2, h / 2
+        R = self._R(u)
+        if s.particles:
+            self.particles.update(frame, mid, w / h, dt)
+            self.particles.draw(layer, frame, c1, c2, bass, treble, u)
+        bars = resample(lv, self.BARS)
+        width = max(2.0, R * TAU / (self.BARS * 2) * 0.55)
+        r0 = R * 1.08
+        for side in (-1, 1):
+            for i, v in enumerate(bars.tolist()):
+                a = -math.pi / 2 + side * (i + 0.5) / self.BARS * math.pi
+                L = u * (0.012 + 0.21 * v)
+                ca, sa = math.cos(a), math.sin(a)
+                col = lerp_color(c1, c2, i / (self.BARS - 1))
+                aa_line(layer, col, (cx + ca * r0, cy + sa * r0), (cx + ca * (r0 + L), cy + sa * (r0 + L)), width)
+        gfx.aacircle(layer, int(cx), int(cy), int(R), (*lerp_color(c1, WHITE, 0.3), 255))
+        # glowing cap on the sun gear's axle, pulsing with the beat
+        aa_circle(layer, lerp_color(c1, WHITE, 0.6), (cx, cy), R * (0.07 + 0.05 * frame.beat))
 
 
-RENDERERS = {cls.style: cls for cls in (SpectrumRenderer, WaveformRenderer, RadialRenderer,
-                                        RingsRenderer, ParticlesRenderer)}
+RENDERERS = {cls.style: cls for cls in (SpectrumRenderer, WaveformRenderer, RadialRenderer)}
 
 
 def create_renderer(style: str) -> BaseRenderer:

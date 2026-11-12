@@ -133,9 +133,11 @@ class AudioFile:
 
 # Style keys are stored in saved visualizations, so they stay stable even
 # though the styles have been redesigned (they map to the current designs).
-WAVE_TYPES = ("bars", "waveform", "circular", "meters", "particles")
-WAVE_TYPE_LABELS = {"bars": "Spectrum", "waveform": "Waveform", "circular": "Radial",
-                    "meters": "Rings", "particles": "Particles"}
+WAVE_TYPES = ("bars", "waveform", "circular")
+WAVE_TYPE_LABELS = {"bars": "Spectrum", "waveform": "Waveform", "circular": "Radial"}
+# Styles that were removed: saved visualizations that used them open as Radial
+# (the old "particles" style becomes Radial with the particles option on).
+LEGACY_WAVE_TYPES = {"meters": ("circular", False), "particles": ("circular", True)}
 # Backgrounds are skies at different times of day.
 BACKGROUNDS = ("golden", "sunset", "dawn", "twilight", "night")
 BACKGROUND_LABELS = {"golden": "Golden", "sunset": "Sunset", "dawn": "Dawn",
@@ -169,6 +171,7 @@ class VisualSettings:
     glow: bool = True
     show_title: bool = True
     atmosphere: bool = True      # "Haze": soft vignette and a warm glow from below
+    particles: bool = False      # swirling particles around the Radial style
 
     def validate(self) -> "VisualSettings":
         hex_to_rgb(self.color)
@@ -204,6 +207,9 @@ class VisualSettings:
         known = {f.name for f in fields(cls)} - {"settings_id"}
         if data.get("background") in LEGACY_BACKGROUNDS:  # saved by an earlier version
             data = {**data, "background": LEGACY_BACKGROUNDS[data["background"]]}
+        if data.get("wave_type") in LEGACY_WAVE_TYPES:
+            style, particles = LEGACY_WAVE_TYPES[data["wave_type"]]
+            data = {**data, "wave_type": style, "particles": particles or bool(data.get("particles"))}
         if "vintage" in data and "atmosphere" not in data:
             data = {**data, "atmosphere": bool(data["vintage"])}
         settings = cls(settings_id=settings_id, **{k: v for k, v in data.items() if k in known})

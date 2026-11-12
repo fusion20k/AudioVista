@@ -21,7 +21,7 @@ class TestVisualSettings:
         assert s.primary_rgb == (0xff, 0xb3, 0x5c)
 
     def test_round_trip_through_dict(self):
-        s = VisualSettings(color="#00e5ff", wave_type="particles", sensitivity=1.5, glow=False)
+        s = VisualSettings(color="#00e5ff", wave_type="circular", particles=True, sensitivity=1.5, glow=False)
         again = VisualSettings.from_dict(s.to_dict())
         assert again == s
 
@@ -145,3 +145,22 @@ def test_settings_saved_by_earlier_versions_still_load(old_background, sky):
     s = VisualSettings.from_dict(old)
     assert s.background == sky
     assert s.atmosphere is False          # the old "retro" switch carries over
+
+
+@pytest.mark.parametrize("old_style, particles", [("meters", False), ("particles", True)])
+def test_removed_styles_open_as_radial(old_style, particles):
+    s = VisualSettings.from_dict({"wave_type": old_style})
+    assert s.wave_type == "circular" and s.particles is particles
+
+
+def test_radial_particles_option_draws_extra_detail(analyzer):
+    pygame.init()
+    frames = []
+    for particles in (False, True):
+        engine = VisualizerEngine(analyzer, VisualSettings(wave_type="circular", particles=particles,
+                                                           show_title=False, glow=False, atmosphere=False))
+        surface = pygame.Surface((320, 180))
+        for i in range(20):
+            engine.render(surface, 0.5 + i / 30, 1 / 30)
+        frames.append(pygame.surfarray.array3d(surface).copy())
+    assert (frames[0] != frames[1]).any()
