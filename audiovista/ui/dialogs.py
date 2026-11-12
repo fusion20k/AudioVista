@@ -12,6 +12,7 @@ import pygame
 from ..config import EXPORT_RESOLUTIONS, default_export_dir
 from ..errors import AudioVistaError, ExportCancelled
 from . import theme as T
+from .theme import px
 from .widgets import Button, ChoiceGroup, Modal, TextInput
 
 # --------------------------------------------------------- native pickers
@@ -90,12 +91,12 @@ class ConfirmDialog(Modal):
 
     def layout(self, size):
         super().layout(size)
-        self.ok.rect = pygame.Rect(self.rect.right - 28 - 140, self.rect.bottom - 72, 140, 44)
-        self.cancel.rect = pygame.Rect(self.ok.rect.x - 12 - 110, self.rect.bottom - 72, 110, 44)
+        self.ok.rect = pygame.Rect(self.rect.right - px(28 + 140), self.rect.bottom - px(72), px(140), px(44))
+        self.cancel.rect = pygame.Rect(self.ok.rect.x - px(12 + 110), self.rect.bottom - px(72), px(110), px(44))
 
     def draw_content(self, surf):
-        for i, line in enumerate(T.wrap_text(self.message, 14, self.rect.w - 56)):
-            T.draw_text(surf, line, (self.rect.x + 28, self.rect.y + 66 + i * 21), 14, T.TEXT_DIM)
+        for i, line in enumerate(T.wrap_text(self.message, 14, self.rect.w - px(56))):
+            T.draw_text(surf, line, (self.rect.x + px(28), self.rect.y + px(66 + i * 21)), 14, T.TEXT_DIM)
 
 
 class SaveDialog(Modal):
@@ -119,9 +120,9 @@ class SaveDialog(Modal):
 
     def layout(self, size):
         super().layout(size)
-        self.input.rect = pygame.Rect(self.rect.x + 28, self.rect.y + 84, self.rect.w - 56, 46)
-        self.ok.rect = pygame.Rect(self.rect.right - 28 - 120, self.rect.bottom - 70, 120, 44)
-        self.cancel.rect = pygame.Rect(self.ok.rect.x - 12 - 110, self.rect.bottom - 70, 110, 44)
+        self.input.rect = pygame.Rect(self.rect.x + px(28), self.rect.y + px(84), self.rect.w - px(56), px(46))
+        self.ok.rect = pygame.Rect(self.rect.right - px(28 + 120), self.rect.bottom - px(70), px(120), px(44))
+        self.cancel.rect = pygame.Rect(self.ok.rect.x - px(12 + 110), self.rect.bottom - px(70), px(110), px(44))
 
     def save(self):
         try:
@@ -135,10 +136,10 @@ class SaveDialog(Modal):
             self.after_save()
 
     def draw_content(self, surf):
-        T.draw_text(surf, "NAME", (self.rect.x + 30, self.rect.y + 62), 12, T.TEXT_DIM, bold=True)
+        T.draw_text(surf, "NAME", (self.rect.x + px(30), self.rect.y + px(62)), 12, T.TEXT_DIM, bold=True)
         if self.error:
-            T.draw_text(surf, self.error, (self.rect.x + 30, self.rect.y + 136), 13, T.DANGER,
-                        max_width=self.rect.w - 60)
+            T.draw_text(surf, self.error, (self.rect.x + px(30), self.rect.y + px(136)), 13, T.DANGER,
+                        max_width=self.rect.w - px(60))
 
 
 class ExportDialog(Modal):
@@ -179,15 +180,15 @@ class ExportDialog(Modal):
 
     def layout(self, size):
         super().layout(size)
-        x, w = self.rect.x + 28, self.rect.w - 56
-        self.res_group.rect = pygame.Rect(x, self.rect.y + 112, w, 0)
+        x, w = self.rect.x + px(28), self.rect.w - px(56)
+        self.res_group.rect = pygame.Rect(x, self.rect.y + px(112), w, 0)
         self.res_group.rect.h = self.res_group.height
-        self.fps_group.rect = pygame.Rect(x, self.res_group.rect.bottom + 40, w, 34)
-        self.len_group.rect = pygame.Rect(x, self.fps_group.rect.bottom + 40, w, 34)
-        self.path_y = self.len_group.rect.bottom + 40
-        self.change_btn.rect = pygame.Rect(self.rect.right - 28 - 96, self.path_y - 4, 96, 34)
-        self.ok.rect = pygame.Rect(self.rect.right - 28 - 160, self.rect.bottom - 70, 160, 44)
-        self.cancel.rect = pygame.Rect(self.ok.rect.x - 12 - 110, self.rect.bottom - 70, 110, 44)
+        self.fps_group.rect = pygame.Rect(x, self.res_group.rect.bottom + px(40), w, px(34))
+        self.len_group.rect = pygame.Rect(x, self.fps_group.rect.bottom + px(40), w, px(34))
+        self.path_y = self.len_group.rect.bottom + px(40)
+        self.change_btn.rect = pygame.Rect(self.rect.right - px(28 + 96), self.path_y - px(4), px(96), px(34))
+        self.ok.rect = pygame.Rect(self.rect.right - px(28 + 160), self.rect.bottom - px(70), px(160), px(44))
+        self.cancel.rect = pygame.Rect(self.ok.rect.x - px(12 + 110), self.rect.bottom - px(70), px(110), px(44))
         self.open_btn.rect = self.ok.rect.copy()
 
     def _choose_path(self):
@@ -243,7 +244,6 @@ class ExportDialog(Modal):
             self.close()
 
     def handle_event(self, event):
-        # Chip groups don't check "enabled" themselves.
         if self.state == "running" and event.type in (pygame.MOUSEBUTTONUP, pygame.MOUSEBUTTONDOWN):
             if self.cancel.handle_event(event):
                 return True
@@ -251,27 +251,26 @@ class ExportDialog(Modal):
         return super().handle_event(event)
 
     def draw_content(self, surf):
-        x = self.rect.x + 30
+        x = self.rect.x + px(30)
         vis = self.app.session.get_current_visualization()
-        T.draw_text(surf, vis.name if vis else "", (x, self.rect.y + 54), 13, T.TEXT_MUTED,
-                    max_width=self.rect.w - 60)
-        T.draw_text(surf, "RESOLUTION", (x, self.res_group.rect.y - 20), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "FRAME RATE", (x, self.fps_group.rect.y - 20), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "LENGTH", (x, self.len_group.rect.y - 20), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "SAVE TO", (x, self.path_y - 20), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, str(self.output), (x, self.path_y + 4), 13, T.TEXT,
-                    max_width=self.rect.w - 60 - 110)
+        T.draw_text(surf, vis.name if vis else "", (x, self.rect.y + px(56)), 13, T.TEXT_MUTED,
+                    max_width=self.rect.w - px(60))
+        for label, y in (("RESOLUTION", self.res_group.rect.y), ("FRAME RATE", self.fps_group.rect.y),
+                         ("LENGTH", self.len_group.rect.y), ("SAVE TO", self.path_y)):
+            T.draw_text(surf, label, (x, y - px(20)), 12, T.TEXT_DIM, bold=True)
+        T.draw_text(surf, str(self.output), (x, self.path_y + px(4)), 13, T.TEXT,
+                    max_width=self.rect.w - px(60 + 110))
 
-        bar = pygame.Rect(x, self.path_y + 48, self.rect.w - 60, 10)
+        bar = pygame.Rect(x, self.path_y + px(48), self.rect.w - px(60), px(10))
         if self.state in ("running", "done"):
-            pygame.draw.rect(surf, T.PANEL_3, bar, border_radius=5)
+            T.rrect(surf, T.PANEL_3, bar, bar.h // 2)
             fill = bar.copy()
-            fill.w = int(bar.w * self.progress)
-            pygame.draw.rect(surf, T.SUCCESS if self.state == "done" else T.ACCENT, fill, border_radius=5)
+            fill.w = max(bar.h, int(bar.w * self.progress))
+            T.rrect(surf, T.SUCCESS if self.state == "done" else T.ACCENT, fill, bar.h // 2)
             label = (f"Rendering… {int(self.progress * 100)}%" if self.state == "running"
                      else self.message)
-            T.draw_text(surf, label, (x, bar.bottom + 8), 13, T.TEXT_DIM, max_width=bar.w)
+            T.draw_text(surf, label, (x, bar.bottom + px(8)), 13, T.TEXT_DIM, max_width=bar.w)
         elif self.message:
             col = T.DANGER if self.state == "error" else T.TEXT_DIM
             for i, line in enumerate(T.wrap_text(self.message, 13, bar.w)[:2]):
-                T.draw_text(surf, line, (x, bar.y + i * 18), 13, col)
+                T.draw_text(surf, line, (x, bar.y + i * px(18)), 13, col)

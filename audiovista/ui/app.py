@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import queue
+import sys
 import threading
 import traceback
 from pathlib import Path
@@ -21,23 +22,69 @@ from ..database import Database
 from ..errors import AudioVistaError
 from ..models import AudioFile, Session, Visualization, VisualSettings
 from . import theme as T
+from .theme import px
 from .auth_screens import LoginScreen, RegisterScreen, Screen
 from .studio import StudioScreen
 from .widgets import Modal, Toasts
 
 
+APP_USER_MODEL_ID = "AudioVista.Desktop"
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
+
+
+def configure_windows_display() -> float:
+    """Make the process DPI-aware and give it its own taskbar identity.
+
+    Returns the display scale factor (1.0 = 100%, 2.0 = 200%). Without DPI
+    awareness Windows renders the window at low resolution and stretches it,
+    which looks pixelated on high-DPI screens. The AppUserModelID makes the
+    taskbar show AudioVista's own icon instead of the Python icon.
+    """
+    override = os.environ.get("AUDIOVISTA_UI_SCALE")
+    scale = 1.0
+    if sys.platform == "win32":
+        import ctypes
+
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+        except (AttributeError, OSError):
+            pass
+        if os.environ.get("SDL_VIDEODRIVER") != "dummy":
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)  # per-monitor aware
+            except (AttributeError, OSError):
+                try:
+                    ctypes.windll.user32.SetProcessDPIAware()
+                except (AttributeError, OSError):
+                    pass
+            try:
+                scale = ctypes.windll.user32.GetDpiForSystem() / 96.0
+            except (AttributeError, OSError):
+                scale = 1.0
+    if override:
+        try:
+            scale = float(override)
+        except ValueError:
+            pass
+    return max(1.0, scale)
+
+
 class AudioVistaUI:
     FPS = 60
+    MIN_SIZE = (1000, 720)  # logical px
 
     def __init__(self, db_path: str | Path | None = None, size=(1360, 840)):
         os.environ.setdefault("SDL_HINT_IME_SHOW_UI", "1")
+        T.set_scale(configure_windows_display())
         pygame.init()
         pygame.display.set_caption("AudioVista")
+        pygame.display.set_icon(T.render_logo(128))
         info = pygame.display.Info()
+        size = (px(size[0]), px(size[1]))
         if info.current_w > 0 and info.current_h > 0 and os.environ.get("SDL_VIDEODRIVER") != "dummy":
-            size = (min(size[0], info.current_w - 40), min(size[1], info.current_h - 80))
+            size = (min(size[0], info.current_w - px(40)), min(size[1], info.current_h - px(90)))
         self.screen = pygame.display.set_mode(size, pygame.RESIZABLE)
-        pygame.display.set_icon(self._make_icon())
+        self._apply_taskbar_identity()
         pygame.key.set_repeat(400, 35)
 
         self.db = Database(db_path or config.database_path())
@@ -54,10 +101,27 @@ class AudioVistaUI:
         self.current.on_enter()
 
     @staticmethod
-    def _make_icon() -> pygame.Surface:
-        icon = pygame.Surface((32, 32), pygame.SRCALPHA)
-        T.draw_icon(icon, "logo", pygame.Rect(3, 4, 28, 24), T.ACCENT)
-        return icon
+    def _apply_taskbar_identity():
+        """Show the AudioVista logo (not Python's) on the taskbar and Alt+Tab."""
+        if sys.platform != "win32" or os.environ.get("SDL_VIDEODRIVER") == "dummy":
+            return
+        from . import winshell
+
+        try:
+            hwnd = pygame.display.get_wm_info().get("window")
+        except pygame.error:
+            return
+        ico = ASSETS_DIR / "audiovista.ico"
+        if not ico.is_file():
+            try:
+                winshell.write_ico(ico, [T.render_logo(s) for s in (16, 24, 32, 48, 64, 128, 256)])
+            except OSError:
+                pass
+        launcher = Path(sys.executable).with_name("pythonw.exe")
+        exe = launcher if launcher.exists() else Path(sys.executable)
+        winshell.set_window_icon(hwnd, ico)
+        winshell.set_window_identity(hwnd, APP_USER_MODEL_ID, "AudioVista", f"{ico},0",
+                                     f'"{exe}" "{ASSETS_DIR.parent / "main.py"}"')
 
     def _bind_controllers(self):
         self.upload_controller = UploadController(self.db, self.session, config.library_dir())
@@ -165,7 +229,7 @@ class AudioVistaUI:
             self.running = False
             return
         if event.type == pygame.VIDEORESIZE:
-            w, h = max(1000, event.w), max(720, event.h)
+            w, h = max(px(self.MIN_SIZE[0]), event.w), max(px(self.MIN_SIZE[1]), event.h)
             if (w, h) != (event.w, event.h):
                 self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
             self.current.layout(self.screen.get_size())

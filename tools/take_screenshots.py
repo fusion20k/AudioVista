@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ["AUDIOVISTA_DATA_DIR"] = tempfile.mkdtemp(prefix="audiovista_shots_")
+os.environ.setdefault("AUDIOVISTA_UI_SCALE", "1.5")  # crisp, high-DPI screenshots
 
 import pygame  # noqa: E402
 
@@ -98,7 +99,6 @@ def main():
     for i, (style, bg, c1, c2) in enumerate([("waveform", "ocean", "#00e5ff", "#3dfc8f"),
                                               ("circular", "nebula", "#ff3cac", "#7c5cff"),
                                               ("particles", "sunset", "#ffd23f", "#ff3cac")]):
-        studio.style_group.value = style
         studio.change_setting(wave_type=style, background=bg, color=c1, secondary_color=c2)
         studio._apply_settings_to_widgets(studio.settings)
         pump(app, 1.0)

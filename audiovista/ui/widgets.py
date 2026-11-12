@@ -1,4 +1,8 @@
-"""A small set of pygame widgets: buttons, text inputs, sliders, lists..."""
+"""A small set of pygame widgets: buttons, text inputs, sliders, lists...
+
+Rects are in physical pixels (screens lay them out with ``theme.px``); the
+widgets scale their own paddings, radii and fonts the same way.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from typing import Any, Callable
 import pygame
 
 from . import theme as T
+from .theme import px
 
 
 def mouse_pos():
@@ -79,12 +84,13 @@ class Button(Widget):
         bg, bg_hover, fg, border = self.KINDS[self.kind]
         hovered = self.hovered and self.enabled
         if self.active:
-            bg, fg, border = T.ACCENT_DARK, (255, 255, 255), T.ACCENT
+            bg, bg_hover, fg, border = T.ACCENT_DARK, T.ACCENT_DARK, (255, 255, 255), T.ACCENT
         col = bg_hover if hovered and bg_hover else bg
+        radius = px(self.radius)
         if col:
-            pygame.draw.rect(surf, col, self.rect, border_radius=self.radius)
+            T.rrect(surf, col, self.rect, radius)
         if border:
-            pygame.draw.rect(surf, border, self.rect, 1, border_radius=self.radius)
+            T.rrect(surf, border, self.rect, radius, max(1, px(1)))
         if not self.enabled:
             fg = T.TEXT_MUTED
         elif self.kind == "link" and hovered:
@@ -92,20 +98,21 @@ class Button(Widget):
         elif self.kind == "ghost" and hovered:
             fg = T.TEXT
 
-        icon_size = min(self.rect.h - 14, 18)
+        icon_size = min(self.rect.h - px(14), px(18))
         if self.icon and not self.text:
             ir = pygame.Rect(0, 0, icon_size, icon_size)
             ir.center = self.rect.center
             T.draw_icon(surf, self.icon, ir, fg)
             return
         tw = T.text_width(self.text, self.size, bold=True)
-        total = tw + (icon_size + 8 if self.icon else 0)
+        gap = px(8)
+        total = tw + (icon_size + gap if self.icon else 0)
         x = self.rect.centerx - total // 2
         if self.icon:
             ir = pygame.Rect(x, 0, icon_size, icon_size)
             ir.centery = self.rect.centery
             T.draw_icon(surf, self.icon, ir, fg)
-            x += icon_size + 8
+            x += icon_size + gap
         T.draw_text(surf, self.text, (x, self.rect.centery), self.size, fg, bold=True, anchor="midleft")
 
 
@@ -205,28 +212,23 @@ class TextInput(Widget):
         if not self.visible:
             return
         border = T.DANGER if self.error else (T.ACCENT if self.focused else T.BORDER)
-        pygame.draw.rect(surf, T.PANEL_2, self.rect, border_radius=10)
-        pygame.draw.rect(surf, border, self.rect, 2 if self.focused or self.error else 1, border_radius=10)
-        pad = 14
-        inner = self.rect.inflate(-2 * pad, 0)
+        T.rrect(surf, T.PANEL_2, self.rect, px(10))
+        T.rrect(surf, border, self.rect, px(10), px(2) if self.focused or self.error else max(1, px(1)))
+        inner = self.rect.inflate(-2 * px(14), 0)
         shown = "•" * len(self.text) if self.password else self.text
         size = 15
         clip = surf.get_clip()
         surf.set_clip(inner.clip(clip) if clip else inner)
-        if not self.text and not self.focused:
+        before = shown[: self.cursor]
+        cx = T.text_width(before, size)
+        offset = max(0, cx - inner.w + px(4))
+        if not self.text:
             T.draw_text(surf, self.placeholder, (inner.x, inner.centery), size, T.TEXT_MUTED, anchor="midleft")
         else:
-            before = shown[: self.cursor]
-            cx = T.text_width(before, size)
-            offset = max(0, cx - inner.w + 4)
-            if not self.text:
-                T.draw_text(surf, self.placeholder, (inner.x, inner.centery), size, T.TEXT_MUTED,
-                            anchor="midleft")
-            else:
-                T.draw_text(surf, shown, (inner.x - offset, inner.centery), size, T.TEXT, anchor="midleft")
-            if self.focused and (self._blink % 1.0) < 0.55:
-                x = inner.x + cx - offset
-                pygame.draw.line(surf, T.TEXT, (x, inner.centery - 10), (x, inner.centery + 10), 2)
+            T.draw_text(surf, shown, (inner.x - offset, inner.centery), size, T.TEXT, anchor="midleft")
+        if self.focused and (self._blink % 1.0) < 0.55:
+            x = inner.x + cx - offset
+            pygame.draw.rect(surf, T.TEXT, (x, inner.centery - px(10), max(1, px(1.5)), px(20)))
         surf.set_clip(clip)
 
 
@@ -250,7 +252,7 @@ class Slider(Widget):
     def handle_event(self, event) -> bool:
         if not self.visible:
             return False
-        hit = self.rect.inflate(0, 16)
+        hit = self.rect.inflate(px(12), px(16))
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and hit.collidepoint(event.pos):
             self.dragging = True
             self._set(self._value_at(event.pos[0]))
@@ -274,14 +276,15 @@ class Slider(Widget):
     def draw(self, surf):
         if not self.visible:
             return
-        track = pygame.Rect(self.rect.x, self.rect.centery - 3, self.rect.w, 6)
-        pygame.draw.rect(surf, T.PANEL_3, track, border_radius=3)
+        th = px(6)
+        track = pygame.Rect(self.rect.x, self.rect.centery - th // 2, self.rect.w, th)
+        T.rrect(surf, T.PANEL_3, track, th // 2)
         t = (self.value - self.min) / max(1e-9, self.max - self.min)
         fill = track.copy()
-        fill.w = int(track.w * t)
-        pygame.draw.rect(surf, T.ACCENT, fill, border_radius=3)
-        knob_r = 9 if (self.dragging or self.hovered) else 7
-        pygame.draw.circle(surf, (255, 255, 255), (track.x + fill.w, track.centery), knob_r)
+        fill.w = max(th, int(track.w * t))
+        T.rrect(surf, T.ACCENT, fill, th // 2)
+        knob_r = px(9) if (self.dragging or self.hovered) else px(7.5)
+        T.circle(surf, (255, 255, 255), (track.x + int(track.w * t), track.centery), knob_r)
 
 
 # ---------------------------------------------------------------- Toggle
@@ -303,17 +306,17 @@ class Toggle(Widget):
 
     def draw(self, surf):
         T.draw_text(surf, self.label, (self.rect.x, self.rect.centery), 14, T.TEXT_DIM, anchor="midleft")
-        sw = pygame.Rect(0, 0, 40, 22)
+        sw = pygame.Rect(0, 0, px(40), px(22))
         sw.midright = self.rect.midright
-        pygame.draw.rect(surf, T.ACCENT if self.value else T.PANEL_3, sw, border_radius=11)
-        kx = sw.right - 11 if self.value else sw.x + 11
-        pygame.draw.circle(surf, (255, 255, 255), (kx, sw.centery), 8)
+        T.rrect(surf, T.ACCENT if self.value else T.PANEL_3, sw, sw.h // 2)
+        kx = sw.right - sw.h // 2 if self.value else sw.x + sw.h // 2
+        T.circle(surf, (255, 255, 255), (kx, sw.centery), px(8))
 
 
 # ---------------------------------------------------------------- Chips
 
 class ChoiceGroup(Widget):
-    """Grid of selectable chips (one active)."""
+    """Grid of selectable chips (one active). Sizes are logical px."""
 
     def __init__(self, options: list[tuple[Any, str]], value: Any, on_change: Callable[[Any], Any],
                  columns: int = 2, chip_height: int = 36, gap: int = 8, rect=None):
@@ -328,16 +331,18 @@ class ChoiceGroup(Widget):
     @property
     def height(self) -> int:
         rows = (len(self.options) + self.columns - 1) // self.columns
-        return rows * self.chip_height + (rows - 1) * self.gap
+        return rows * px(self.chip_height) + (rows - 1) * px(self.gap)
 
     def _chip_rects(self):
-        cw = (self.rect.w - self.gap * (self.columns - 1)) / self.columns
+        gap, ch = px(self.gap), px(self.chip_height)
+        cw = (self.rect.w - gap * (self.columns - 1)) / self.columns
         for i, opt in enumerate(self.options):
             r, c = divmod(i, self.columns)
-            yield opt, pygame.Rect(int(self.rect.x + c * (cw + self.gap)),
-                                   self.rect.y + r * (self.chip_height + self.gap), int(cw), self.chip_height)
+            yield opt, pygame.Rect(int(self.rect.x + c * (cw + gap)), self.rect.y + r * (ch + gap), int(cw), ch)
 
     def handle_event(self, event) -> bool:
+        if not self.enabled:
+            return False
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             for (val, _label), r in self._chip_rects():
                 if r.collidepoint(event.pos):
@@ -351,11 +356,11 @@ class ChoiceGroup(Widget):
         mp = mouse_pos()
         for (val, label), r in self._chip_rects():
             active = val == self.value
-            bg = T.ACCENT_DARK if active else (T.PANEL_3 if r.collidepoint(mp) else T.PANEL_2)
-            pygame.draw.rect(surf, bg, r, border_radius=9)
-            pygame.draw.rect(surf, T.ACCENT if active else T.BORDER, r, 1, border_radius=9)
-            T.draw_text(surf, label, r.center, 13, (255, 255, 255) if active else T.TEXT_DIM,
-                        bold=active, anchor="center", max_width=r.w - 8)
+            bg = T.ACCENT_DARK if active else (T.PANEL_3 if r.collidepoint(mp) and self.enabled else T.PANEL_2)
+            T.rrect(surf, bg, r, px(9))
+            T.rrect(surf, T.ACCENT if active else T.BORDER, r, px(9), max(1, px(1)))
+            col = (255, 255, 255) if active else (T.TEXT_DIM if self.enabled else T.TEXT_MUTED)
+            T.draw_text(surf, label, r.center, 13, col, bold=active, anchor="center", max_width=r.w - px(8))
 
 
 class ColorSwatches(Widget):
@@ -368,18 +373,22 @@ class ColorSwatches(Widget):
         self.size = size
         self.gap = gap
 
+    def _per_row(self):
+        return max(1, (self.rect.w + px(self.gap)) // (px(self.size) + px(self.gap)))
+
     @property
     def height(self) -> int:
-        per_row = max(1, (self.rect.w + self.gap) // (self.size + self.gap))
-        rows = (len(self.colors) + per_row - 1) // per_row
-        return rows * self.size + (rows - 1) * self.gap
+        rows = (len(self.colors) + self._per_row() - 1) // self._per_row()
+        return rows * px(self.size) + (rows - 1) * px(self.gap)
 
     def _swatches(self):
-        per_row = max(1, (self.rect.w + self.gap) // (self.size + self.gap))
+        per_row = self._per_row()
+        size, gap = px(self.size), px(self.gap)
+        # spread evenly across the row
+        step = (self.rect.w - size) / max(1, per_row - 1) if per_row > 1 else 0
         for i, c in enumerate(self.colors):
             r, col = divmod(i, per_row)
-            yield c, pygame.Rect(self.rect.x + col * (self.size + self.gap),
-                                 self.rect.y + r * (self.size + self.gap), self.size, self.size)
+            yield c, pygame.Rect(int(self.rect.x + col * step), self.rect.y + r * (size + gap), size, size)
 
     def handle_event(self, event) -> bool:
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -394,10 +403,10 @@ class ColorSwatches(Widget):
         mp = mouse_pos()
         for c, r in self._swatches():
             rgb = tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
-            rad = r.w // 2 - (0 if r.collidepoint(mp) else 2)
+            rad = r.w / 2 - (0 if r.collidepoint(mp) else px(2))
             if c.lower() == (self.value or "").lower():
-                pygame.draw.circle(surf, (255, 255, 255), r.center, r.w // 2 + 3, 2)
-            pygame.draw.circle(surf, rgb, r.center, rad)
+                T.circle(surf, (255, 255, 255), r.center, r.w / 2 + px(3.5), max(1, px(2)))
+            T.circle(surf, rgb, r.center, rad)
 
 
 # -------------------------------------------------------------- ListView
@@ -412,7 +421,7 @@ class ListView(Widget):
         super().__init__(rect)
         self.items: list = []
         self.on_select = on_select
-        self.row_height = row_height
+        self.row_height_logical = row_height
         self.row_actions = row_actions or []
         self.empty_text = empty_text
         self.subtitle = subtitle or (lambda item: "")
@@ -421,6 +430,10 @@ class ListView(Widget):
         self.scroll = 0.0
         self.selected_key = None
         self.key = lambda item: id(item)
+
+    @property
+    def row_height(self) -> int:
+        return px(self.row_height_logical)
 
     def set_items(self, items: list):
         self.items = list(items)
@@ -432,21 +445,21 @@ class ListView(Widget):
 
     def _row_rect(self, i: int) -> pygame.Rect:
         return pygame.Rect(self.rect.x, int(self.rect.y + i * self.row_height - self.scroll),
-                           self.rect.w, self.row_height - 4)
+                           self.rect.w, self.row_height - px(4))
 
     def _action_rects(self, row: pygame.Rect):
-        x = row.right - 8
+        x = row.right - px(8)
         for action in reversed(self.row_actions):
-            r = pygame.Rect(0, 0, 28, 28)
+            r = pygame.Rect(0, 0, px(28), px(28))
             r.midright = (x, row.centery)
-            x -= 32
+            x -= px(32)
             yield action, r
 
     def handle_event(self, event) -> bool:
         if not self.visible:
             return False
         if event.type == pygame.MOUSEWHEEL and self.hovered:
-            self.scroll -= event.y * 40
+            self.scroll -= event.y * px(40)
             self._clamp()
             return True
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.rect.collidepoint(event.pos):
@@ -469,8 +482,8 @@ class ListView(Widget):
         surf.set_clip(self.rect)
         mp = mouse_pos()
         if not self.items:
-            for k, line in enumerate(T.wrap_text(self.empty_text, 13, self.rect.w - 20)):
-                T.draw_text(surf, line, (self.rect.centerx, self.rect.y + 24 + k * 18), 13,
+            for k, line in enumerate(T.wrap_text(self.empty_text, 13, self.rect.w - px(24))):
+                T.draw_text(surf, line, (self.rect.centerx, self.rect.y + px(24) + k * px(19)), 13,
                             T.TEXT_MUTED, anchor="midtop")
         for i, item in enumerate(self.items):
             row = self._row_rect(i)
@@ -479,28 +492,27 @@ class ListView(Widget):
             hovered = row.collidepoint(mp) and self.rect.collidepoint(mp)
             selected = self.selected_key is not None and self.key(item) == self.selected_key
             if selected or hovered:
-                pygame.draw.rect(surf, T.ACCENT_DARK if selected else T.PANEL_2, row, border_radius=10)
-            ic = pygame.Rect(row.x + 8, row.centery - 16, 32, 32)
-            pygame.draw.rect(surf, T.PANEL_3, ic, border_radius=8)
-            T.draw_icon(surf, self.icon, ic.inflate(-12, -12), T.ACCENT_HOVER if selected else T.TEXT_DIM)
-            text_w = row.w - 56 - (len(self.row_actions) * 32 if hovered else 0)
-            T.draw_text(surf, self.title(item), (row.x + 50, row.y + 8), 14, T.TEXT, bold=selected,
+                T.rrect(surf, T.ACCENT_DARK if selected else T.PANEL_2, row, px(10))
+            ic = pygame.Rect(row.x + px(8), row.centery - px(16), px(32), px(32))
+            T.rrect(surf, T.PANEL_3, ic, px(8))
+            T.draw_icon(surf, self.icon, ic.inflate(-px(14), -px(14)), T.ACCENT_HOVER if selected else T.TEXT_DIM)
+            text_w = row.w - px(58) - (len(self.row_actions) * px(32) if hovered else 0)
+            T.draw_text(surf, self.title(item), (row.x + px(50), row.y + px(7)), 14, T.TEXT, bold=selected,
                         max_width=text_w)
-            T.draw_text(surf, self.subtitle(item), (row.x + 50, row.y + 28), 12, T.TEXT_MUTED,
+            T.draw_text(surf, self.subtitle(item), (row.x + px(50), row.y + px(27)), 12, T.TEXT_MUTED,
                         max_width=text_w)
             if hovered:
                 for (icon, _cb, _tip), ar in self._action_rects(row):
                     if ar.collidepoint(mp):
-                        pygame.draw.rect(surf, T.PANEL_3, ar, border_radius=7)
-                    T.draw_icon(surf, icon, ar.inflate(-12, -12),
+                        T.rrect(surf, T.PANEL_3, ar, px(7))
+                    T.draw_icon(surf, icon, ar.inflate(-px(12), -px(12)),
                                 T.DANGER if icon == "trash" and ar.collidepoint(mp) else T.TEXT)
         surf.set_clip(clip)
-        # Scrollbar
         content = len(self.items) * self.row_height
         if content > self.rect.h:
-            bar_h = max(30, self.rect.h * self.rect.h / content)
+            bar_h = max(px(30), self.rect.h * self.rect.h / content)
             y = self.rect.y + (self.rect.h - bar_h) * self.scroll / (content - self.rect.h)
-            pygame.draw.rect(surf, T.PANEL_3, (self.rect.right - 4, y, 4, bar_h), border_radius=2)
+            T.rrect(surf, T.PANEL_3, (self.rect.right - px(4), y, px(4), bar_h), px(2))
 
 
 # --------------------------------------------------------------- SeekBar
@@ -523,7 +535,8 @@ class SeekBar(Widget):
     def handle_event(self, event) -> bool:
         if self.duration <= 0:
             return False
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.inflate(0, 10).collidepoint(event.pos):
+        if (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
+                and self.rect.inflate(0, px(10)).collidepoint(event.pos)):
             self.dragging = True
             self._drag_pos = self._t_at(event.pos[0])
             return True
@@ -544,19 +557,22 @@ class SeekBar(Widget):
         if self.overview is not None and len(self.overview):
             n = len(self.overview)
             bw = r.w / n
+            bar = max(1, int(bw * 0.62))
             for i, v in enumerate(self.overview):
                 x = r.x + i * bw
-                hh = max(2, v * r.h)
+                hh = max(px(3), v * r.h)
                 col = T.ACCENT_HOVER if x < split else T.PANEL_3
-                pygame.draw.rect(surf, col, (x, r.centery - hh / 2, max(1, bw - 1), hh), border_radius=1)
+                T.rrect(surf, col, (int(x), int(r.centery - hh / 2), bar, int(hh)), bar // 2)
         else:
-            pygame.draw.rect(surf, T.PANEL_3, (r.x, r.centery - 2, r.w, 4), border_radius=2)
-            pygame.draw.rect(surf, T.ACCENT, (r.x, r.centery - 2, split - r.x, 4), border_radius=2)
+            th = px(4)
+            T.rrect(surf, T.PANEL_3, (r.x, r.centery - th // 2, r.w, th), th // 2)
+            if split > r.x:
+                T.rrect(surf, T.ACCENT, (r.x, r.centery - th // 2, split - r.x, th), th // 2)
         if self.duration > 0:
-            pygame.draw.line(surf, (255, 255, 255), (split, r.y - 2), (split, r.bottom + 2), 2)
+            T.rrect(surf, (255, 255, 255), (split - px(1), r.y - px(3), px(2), r.h + px(6)), px(1))
         if self.hovered and self.duration > 0:
             hx = mouse_pos()[0]
-            T.draw_text(surf, T.format_time(self._t_at(hx)), (hx, r.y - 6), 11, T.TEXT_DIM, anchor="midbottom")
+            T.draw_text(surf, T.format_time(self._t_at(hx)), (hx, r.y - px(6)), 11, T.TEXT_DIM, anchor="midbottom")
 
 
 # --------------------------------------------------------------- Toasts
@@ -572,41 +588,45 @@ class Toasts:
     def draw(self, surf):
         now = time.time()
         self.items = [t for t in self.items if t[2] > now]
-        y = surf.get_height() - 120
+        y = surf.get_height() - px(120)
         for message, kind, expires in reversed(self.items):
             col = {"error": T.DANGER, "success": T.SUCCESS, "warning": T.WARNING}.get(kind, T.ACCENT_HOVER)
-            lines = T.wrap_text(message, 14, 420)
-            h = 22 * len(lines) + 20
-            w = max(T.text_width(l, 14) for l in lines) + 44
+            lines = T.wrap_text(message, 14, px(420))
+            lh = px(22)
+            h = lh * len(lines) + px(20)
+            w = max(T.text_width(line, 14) for line in lines) + px(44)
             rect = pygame.Rect(0, 0, w, h)
             rect.midbottom = (surf.get_width() // 2, y)
-            alpha = min(1.0, (expires - now) / 0.3)
+            alpha = int(255 * min(1.0, (expires - now) / 0.3))
             box = pygame.Surface(rect.size, pygame.SRCALPHA)
-            pygame.draw.rect(box, (*T.PANEL_3, int(245 * alpha)), box.get_rect(), border_radius=12)
-            pygame.draw.rect(box, (*col, int(255 * alpha)), (0, 0, 5, rect.h), border_top_left_radius=12,
-                             border_bottom_left_radius=12)
-            surf.blit(box, rect)
+            T.rrect(box, (*T.PANEL_3, 250), box.get_rect(), px(12))
+            T.rrect(box, col, (px(9), px(10), px(4), rect.h - px(20)), px(2))
             for k, line in enumerate(lines):
-                T.draw_text(surf, line, (rect.x + 22, rect.y + 10 + k * 22), 14, T.TEXT)
-            y = rect.y - 10
+                T.draw_text(box, line, (px(22), px(10) + k * lh), 14, T.TEXT)
+            box.set_alpha(alpha)
+            surf.blit(box, rect)
+            y = rect.y - px(10)
 
 
 # ----------------------------------------------------------------- Modal
 
 class Modal:
-    """Centered dialog. Subclasses add widgets in ``layout`` and draw content."""
+    """Centered dialog. Subclasses add widgets in ``layout`` and draw content.
+
+    ``width``/``height`` are logical px.
+    """
 
     width, height = 460, 300
     title = ""
 
     def __init__(self, app):
         self.app = app
-        self.rect = pygame.Rect(0, 0, self.width, self.height)
+        self.rect = pygame.Rect(0, 0, px(self.width), px(self.height))
         self.widgets: list[Widget] = []
         self.closable = True
 
     def layout(self, screen_size):
-        self.rect.size = (self.width, self.height)
+        self.rect.size = (px(self.width), px(self.height))
         self.rect.center = (screen_size[0] // 2, screen_size[1] // 2)
 
     def close(self):
@@ -628,11 +648,9 @@ class Modal:
             w.update(dt)
 
     def draw(self, surf):
-        shade = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
-        shade.fill((0, 0, 0, 160))
-        surf.blit(shade, (0, 0))
+        T.shade(surf, surf.get_rect(), 160)
         T.draw_panel(surf, self.rect, T.PANEL, radius=16)
-        T.draw_text(surf, self.title, (self.rect.x + 28, self.rect.y + 24), 20, T.TEXT, bold=True)
+        T.draw_text(surf, self.title, (self.rect.x + px(28), self.rect.y + px(24)), 20, T.TEXT, bold=True)
         self.draw_content(surf)
         for w in self.widgets:
             w.draw(surf)

@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" width="120" alt="AudioVista logo"></p>
+
 # AudioVista
 
 **An interactive audio visualization application** — CSI 3370 group project.
@@ -17,7 +19,7 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | --- | --- |
 | Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
 | Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
-| Readable soundwave + waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.overview` |
+| Readable soundwave: "silk wave" ribbons per frequency range around a stabilised oscilloscope trace, plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.overview` |
 | Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
 | Four styles: Equalizer Bars, Waveform, Radial, Particles | `visuals/renderers.py` |
 | Settings: primary/accent colour, background, sensitivity, smoothing, glow, title | `VisualSettings`, studio right panel |
@@ -25,6 +27,7 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |
 | Save result to *My Library*, reopen and delete later | `ResultController`, studio *Saved* tab |
 | Export result as MP4 (480p, 720p, 1080p, square, vertical; 30/60 fps) | `ExportController`, `ExportFile` |
+| Sharp on high-DPI screens (125–200% scaling), anti-aliased UI, own taskbar icon | `ui/theme.py`, `ui/winshell.py` |
 
 ## Getting started (Windows)
 
@@ -111,9 +114,11 @@ audiovista/
     studio.py        main workspace
     dialogs.py       Save, Export, Confirm dialogs and file pickers
     widgets.py       buttons, inputs, sliders, lists, seek bar, toasts
-    theme.py         colours, fonts, vector icons
+    theme.py         colours, fonts, DPI scaling, anti-aliased shapes, icons, logo
+    winshell.py      Windows taskbar icon / app identity (ctypes)
+assets/            logo PNGs and the .ico used for the taskbar (tools/make_icons.py)
 tests/               pytest suite
-tools/               screenshot script
+tools/               screenshot and icon scripts
 ```
 
 ### How the visualizer stays in sync
@@ -124,6 +129,13 @@ and stores 64 log-spaced frequency bands, an RMS loudness envelope and detected
 beat times (bass-energy onsets above the local average). Each frame, the renderer
 asks for the analysis at the player's current position, so the visuals line up
 with what you hear, and video export renders exactly the same frames.
+
+### High-DPI displays
+
+AudioVista tells Windows it is DPI-aware and scales its whole interface by the
+display scale (e.g. 2x at 200%), so text and shapes are drawn at full
+resolution instead of being stretched. Shapes and icons are super-sampled for
+smooth edges. Set `AUDIOVISTA_UI_SCALE` (e.g. `1.25`) to override the scale.
 
 ### Where data is stored
 

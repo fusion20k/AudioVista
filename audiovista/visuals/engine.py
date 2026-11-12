@@ -60,10 +60,14 @@ class VisualizerEngine:
         self.renderer.draw(layer, frame, s, max(1e-3, min(dt, 0.1)))
 
         if s.glow:
-            small = (max(1, size[0] // 6), max(1, size[1] // 6))
-            blur = pygame.transform.smoothscale(layer, small)
-            blur = pygame.transform.smoothscale(blur, (max(1, small[0] // 2), max(1, small[1] // 2)))
-            blur = pygame.transform.smoothscale(blur, size)
+            # Bloom: shrink the layer a lot (cheap), blur it by smooth-scaling the
+            # tiny copy up to half size, then stretch that to full size. The
+            # result is so soft that the final cheap stretch is invisible.
+            w, h = size
+            tiny = pygame.transform.scale(layer, (max(1, w // 4), max(1, h // 4)))
+            tiny = pygame.transform.smoothscale(tiny, (max(1, w // 10), max(1, h // 10)))
+            half = pygame.transform.smoothscale(tiny, (max(1, w // 2), max(1, h // 2)))
+            blur = pygame.transform.scale(half, size)
             target.blit(blur, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
         target.blit(layer, (0, 0))
 

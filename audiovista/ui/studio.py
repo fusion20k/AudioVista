@@ -14,11 +14,10 @@ from ..models import (BACKGROUND_LABELS, BACKGROUNDS, COLOR_PRESETS, WAVE_TYPE_L
                       AudioFile, VisualSettings)
 from ..visuals.engine import VisualizerEngine
 from . import theme as T
+from .theme import px
 from .auth_screens import Screen
 from .dialogs import ConfirmDialog, ExportDialog, SaveDialog, ask_open_audio
 from .widgets import Button, ChoiceGroup, ColorSwatches, ListView, SeekBar, Slider, Toggle
-
-TOP_H, LEFT_W, RIGHT_W, BOTTOM_H = 60, 292, 304, 96
 
 
 class StudioScreen(Screen):
@@ -151,82 +150,78 @@ class StudioScreen(Screen):
     def layout(self, size):
         w, h = size
         self.size = size
+        self.TOP_H, self.LEFT_W, self.RIGHT_W, self.BOTTOM_H = px(60), px(292), px(304), px(96)
+        TOP_H, LEFT_W, RIGHT_W, BOTTOM_H = self.TOP_H, self.LEFT_W, self.RIGHT_W, self.BOTTOM_H
         if self.focus_mode:
             self.canvas = pygame.Rect(0, 0, w, h)
         else:
-            self.canvas = pygame.Rect(LEFT_W, TOP_H, max(50, w - LEFT_W - RIGHT_W), max(50, h - TOP_H - BOTTOM_H))
+            self.canvas = pygame.Rect(LEFT_W, TOP_H, max(50, w - LEFT_W - RIGHT_W),
+                                      max(50, h - TOP_H - BOTTOM_H))
         self.topbar = pygame.Rect(0, 0, w, TOP_H)
         self.sidebar = pygame.Rect(0, TOP_H, LEFT_W, h - TOP_H - BOTTOM_H)
         self.panel = pygame.Rect(w - RIGHT_W, TOP_H, RIGHT_W, h - TOP_H - BOTTOM_H)
         self.transport = pygame.Rect(0, h - BOTTOM_H, w, BOTTOM_H)
 
-        self.logout_btn.rect = pygame.Rect(w - 126, 12, 112, 36)
+        self.logout_btn.rect = pygame.Rect(w - px(126), px(12), px(112), px(36))
 
         # sidebar
-        x, sw = 16, LEFT_W - 32
-        self.upload_btn.rect = pygame.Rect(x, TOP_H + 16, sw, 44)
+        x, sw = px(16), LEFT_W - px(32)
+        self.upload_btn.rect = pygame.Rect(x, TOP_H + px(16), sw, px(44))
         tab_w = sw // 3
         for i, b in enumerate(self.tab_buttons.values()):
-            b.rect = pygame.Rect(x + i * tab_w, TOP_H + 74, tab_w, 34)
-        list_top = TOP_H + 120
-        list_bottom = self.sidebar.bottom - 64
+            b.rect = pygame.Rect(x + i * tab_w, TOP_H + px(74), tab_w, px(34))
+        list_top = TOP_H + px(120)
+        list_bottom = self.sidebar.bottom - px(64)
         for lv in self.lists.values():
-            lv.rect = pygame.Rect(x - 6, list_top, sw + 12, max(40, list_bottom - list_top))
-        self.demo_btn.rect = pygame.Rect(x, self.sidebar.bottom - 52, sw, 38)
+            lv.rect = pygame.Rect(x - px(6), list_top, sw + px(12), max(px(40), list_bottom - list_top))
+        self.demo_btn.rect = pygame.Rect(x, self.sidebar.bottom - px(52), sw, px(38))
 
         # settings panel
-        px, pw = self.panel.x + 20, RIGHT_W - 40
-        y = TOP_H + 48
-        self.style_group.rect = pygame.Rect(px, y, pw, 0)
-        self.style_group.rect.h = self.style_group.height
-        y = self.style_group.rect.bottom + 34
-        self.color_swatches.rect = pygame.Rect(px, y, pw, 0)
-        self.color_swatches.rect.h = self.color_swatches.height
-        y = self.color_swatches.rect.bottom + 34
-        self.color2_swatches.rect = pygame.Rect(px, y, pw, 0)
-        self.color2_swatches.rect.h = self.color2_swatches.height
-        y = self.color2_swatches.rect.bottom + 34
-        self.bg_group.rect = pygame.Rect(px, y, pw, 0)
-        self.bg_group.rect.h = self.bg_group.height
-        y = self.bg_group.rect.bottom + 38
-        self.sens_slider.rect = pygame.Rect(px + 4, y, pw - 8, 16)
-        y += 44
-        self.smooth_slider.rect = pygame.Rect(px + 4, y, pw - 8, 16)
-        y += 30
-        half = (pw - 24) // 2
-        self.glow_toggle.rect = pygame.Rect(px, y, half, 30)
-        self.title_toggle.rect = pygame.Rect(px + half + 24, y, half, 30)
-        bh = 44
-        self.save_btn.rect = pygame.Rect(px, self.panel.bottom - bh - 16, (pw - 10) // 2, bh)
-        self.export_btn.rect = pygame.Rect(self.save_btn.rect.right + 10, self.save_btn.rect.y,
-                                           (pw - 10) // 2, bh)
+        pxx, pw = self.panel.x + px(20), RIGHT_W - px(40)
+        y = TOP_H + px(48)
+        for group, gap in ((self.style_group, 34), (self.color_swatches, 34), (self.color2_swatches, 34),
+                           (self.bg_group, 38)):
+            group.rect = pygame.Rect(pxx, y, pw, 0)
+            group.rect.h = group.height
+            y = group.rect.bottom + px(gap)
+        self.sens_slider.rect = pygame.Rect(pxx + px(4), y, pw - px(8), px(16))
+        y += px(44)
+        self.smooth_slider.rect = pygame.Rect(pxx + px(4), y, pw - px(8), px(16))
+        y += px(30)
+        half = (pw - px(24)) // 2
+        self.glow_toggle.rect = pygame.Rect(pxx, y, half, px(30))
+        self.title_toggle.rect = pygame.Rect(pxx + half + px(24), y, half, px(30))
+        bh = px(44)
+        self.save_btn.rect = pygame.Rect(pxx, self.panel.bottom - bh - px(16), (pw - px(10)) // 2, bh)
+        self.export_btn.rect = pygame.Rect(self.save_btn.rect.right + px(10), self.save_btn.rect.y,
+                                           (pw - px(10)) // 2, bh)
         self.settings_clip = pygame.Rect(self.panel.x, self.panel.y, self.panel.w,
-                                         self.save_btn.rect.y - 8 - self.panel.y)
+                                         self.save_btn.rect.y - px(8) - self.panel.y)
 
         # transport
         ty = self.transport.y
-        self.play_btn.rect = pygame.Rect(0, 0, 52, 52)
+        self.play_btn.rect = pygame.Rect(0, 0, px(52), px(52))
         self.play_btn.rect.center = (LEFT_W // 2, ty + BOTTOM_H // 2)
-        self.prev_btn.rect = pygame.Rect(0, 0, 40, 40)
-        self.prev_btn.rect.center = (self.play_btn.rect.centerx - 62, self.play_btn.rect.centery)
-        self.next_btn.rect = pygame.Rect(0, 0, 40, 40)
-        self.next_btn.rect.center = (self.play_btn.rect.centerx + 62, self.play_btn.rect.centery)
-        seek_x = LEFT_W + 56
-        seek_w = max(100, w - RIGHT_W - 56 - seek_x)
-        self.seek.rect = pygame.Rect(seek_x, ty + 40, seek_w, 34)
-        self.volume.rect = pygame.Rect(w - RIGHT_W + 56, ty + BOTTOM_H // 2 - 8, RIGHT_W - 130, 16)
-        self.focus_btn.rect = pygame.Rect(w - 56, ty + BOTTOM_H // 2 - 18, 36, 36)
+        self.prev_btn.rect = pygame.Rect(0, 0, px(40), px(40))
+        self.prev_btn.rect.center = (self.play_btn.rect.centerx - px(62), self.play_btn.rect.centery)
+        self.next_btn.rect = pygame.Rect(0, 0, px(40), px(40))
+        self.next_btn.rect.center = (self.play_btn.rect.centerx + px(62), self.play_btn.rect.centery)
+        seek_x = LEFT_W + px(56)
+        seek_w = max(px(100), w - RIGHT_W - px(56) - seek_x)
+        self.seek.rect = pygame.Rect(seek_x, ty + px(42), seek_w, px(32))
+        self.volume.rect = pygame.Rect(w - RIGHT_W + px(56), ty + BOTTOM_H // 2 - px(8), RIGHT_W - px(130), px(16))
+        self.focus_btn.rect = pygame.Rect(w - px(56), ty + BOTTOM_H // 2 - px(18), px(36), px(36))
         self._update_overview()
 
-        self.empty_upload.rect = pygame.Rect(0, 0, 220, 48)
-        self.empty_upload.rect.center = (self.canvas.centerx, self.canvas.centery + 40)
-        self.empty_demo.rect = pygame.Rect(0, 0, 220, 42)
-        self.empty_demo.rect.center = (self.canvas.centerx, self.canvas.centery + 100)
+        self.empty_upload.rect = pygame.Rect(0, 0, px(220), px(48))
+        self.empty_upload.rect.center = (self.canvas.centerx, self.canvas.centery + px(48))
+        self.empty_demo.rect = pygame.Rect(0, 0, px(220), px(42))
+        self.empty_demo.rect.center = (self.canvas.centerx, self.canvas.centery + px(106))
 
     def _update_overview(self):
         audio = self.app.session.get_current_audio()
         if audio is not None and audio.is_loaded:
-            self.seek.overview = audio.get_analyzer().overview(max(20, self.seek.rect.w // 4))
+            self.seek.overview = audio.get_analyzer().overview(max(20, self.seek.rect.w // px(4)))
         else:
             self.seek.overview = None
 
@@ -513,12 +508,16 @@ class StudioScreen(Screen):
         if self.focus_mode:
             if time.time() - self._mouse_moved_at < 2.0:
                 T.draw_text(surf, "Press F or Esc to exit full view  ·  Space to play/pause",
-                            (surf.get_width() // 2, 16), 13, T.TEXT_DIM, anchor="midtop")
+                            (surf.get_width() // 2, px(16)), 13, T.TEXT_DIM, anchor="midtop")
             return
         self._draw_topbar(surf)
         self._draw_sidebar(surf)
         self._draw_panel(surf)
         self._draw_transport(surf)
+
+    # Rendering every canvas pixel at 4K-class sizes is slow in software, so very
+    # large canvases are rendered at a capped size and smooth-scaled up.
+    MAX_CANVAS_PIXELS = 2_300_000
 
     def _draw_canvas(self, surf):
         c = self.canvas
@@ -526,90 +525,99 @@ class StudioScreen(Screen):
         dt = now - self._last_render
         self._last_render = now
         if self.engine is not None and self.app.player.loaded:
-            if self._canvas_surface is None or self._canvas_surface.get_size() != c.size:
-                self._canvas_surface = pygame.Surface(c.size)
+            k = min(1.0, math.sqrt(self.MAX_CANVAS_PIXELS / max(1, c.w * c.h)))
+            size = (max(8, int(c.w * k)), max(8, int(c.h * k)))
+            if self._canvas_surface is None or self._canvas_surface.get_size() != size:
+                self._canvas_surface = pygame.Surface(size)
             # Freeze motion while paused so the frame doesn't decay to nothing.
             self.engine.render(self._canvas_surface, self.app.player.position,
                                dt if self.app.player.is_playing else 0.0001)
-            surf.blit(self._canvas_surface, c)
+            if size == c.size:
+                surf.blit(self._canvas_surface, c)
+            else:
+                surf.blit(pygame.transform.smoothscale(self._canvas_surface, c.size), c)
         else:
             pygame.draw.rect(surf, (8, 9, 16), c)
             if self.loading is None:
-                logo = pygame.Rect(0, 0, 70, 56)
-                logo.center = (c.centerx, c.centery - 90)
-                T.draw_icon(surf, "logo", logo, T.ACCENT)
-                T.draw_text(surf, "Drop an audio file here", (c.centerx, c.centery - 32), 22, T.TEXT,
+                logo = pygame.Rect(0, 0, px(76), px(76))
+                logo.center = (c.centerx, c.centery - px(96))
+                T.draw_logo(surf, logo)
+                T.draw_text(surf, "Drop an audio file here", (c.centerx, c.centery - px(24)), 22, T.TEXT,
                             bold=True, anchor="center")
                 T.draw_text(surf, "MP3, WAV or FLAC  ·  or pick a track from your library",
-                            (c.centerx, c.centery - 4), 14, T.TEXT_DIM, anchor="center")
+                            (c.centerx, c.centery + px(4)), 14, T.TEXT_DIM, anchor="center")
                 self.empty_upload.draw(surf)
                 self.empty_demo.draw(surf)
         if self.loading:
-            shade = pygame.Surface(c.size, pygame.SRCALPHA)
-            shade.fill((0, 0, 0, 150))
-            surf.blit(shade, c)
+            T.shade(surf, c, 150)
             t = time.time()
             for i in range(8):
                 a = t * 4 + i * 0.785
-                alpha = (i + 1) / 8
-                col = tuple(int(v * alpha) for v in T.ACCENT_HOVER)
-                pygame.draw.circle(surf, col, (int(c.centerx + math.cos(a) * 22),
-                                               int(c.centery - 20 + math.sin(a) * 22)), 4)
-            T.draw_text(surf, self.loading, (c.centerx, c.centery + 24), 15, T.TEXT, anchor="midtop")
+                col = tuple(int(v * (i + 1) / 8) for v in T.ACCENT_HOVER)
+                T.circle(surf, col, (c.centerx + math.cos(a) * px(22), c.centery - px(20) + math.sin(a) * px(22)),
+                         px(4))
+            T.draw_text(surf, self.loading, (c.centerx, c.centery + px(24)), 15, T.TEXT, anchor="midtop")
 
     def _draw_topbar(self, surf):
+        top = self.TOP_H
+        line = max(1, px(1))
         pygame.draw.rect(surf, T.PANEL, self.topbar)
-        pygame.draw.line(surf, T.BORDER, (0, TOP_H - 1), (self.topbar.w, TOP_H - 1))
-        T.draw_icon(surf, "logo", pygame.Rect(18, 17, 28, 24), T.ACCENT)
-        T.draw_text(surf, "AudioVista", (56, TOP_H // 2), 19, T.TEXT, bold=True, anchor="midleft")
+        pygame.draw.rect(surf, T.BORDER, (0, top - line, self.topbar.w, line))
+        logo = pygame.Rect(px(16), (top - px(32)) // 2, px(32), px(32))
+        T.draw_logo(surf, logo)
+        T.draw_text(surf, "AudioVista", (logo.right + px(10), top // 2), 19, T.TEXT, bold=True, anchor="midleft")
         audio = self.app.session.get_current_audio()
         vis = self.app.session.get_current_visualization()
         if audio is not None:
             name = vis.name if vis and vis.save_status else audio.display_name
-            T.draw_text(surf, name, (self.topbar.centerx, TOP_H // 2 - 8), 15, T.TEXT, bold=True,
-                        anchor="center", max_width=self.topbar.w - 2 * LEFT_W - 40)
+            T.draw_text(surf, name, (self.topbar.centerx, top // 2 - px(8)), 15, T.TEXT, bold=True,
+                        anchor="center", max_width=self.topbar.w - 2 * self.LEFT_W - px(40))
             bpm = audio.get_analyzer().estimate_tempo() if audio.is_loaded else None
-            status = "Saved" if vis and vis.save_status else "Unsaved changes" if vis and vis.visualization_id else "Not saved"
+            status = ("Saved" if vis and vis.save_status
+                      else "Unsaved changes" if vis and vis.visualization_id else "Not saved")
             info = f"{T.format_time(audio.duration)}  ·  {status}" + (f"  ·  ~{bpm:.0f} BPM" if bpm else "")
-            T.draw_text(surf, info, (self.topbar.centerx, TOP_H // 2 + 12), 12,
+            T.draw_text(surf, info, (self.topbar.centerx, top // 2 + px(12)), 12,
                         T.SUCCESS if vis and vis.save_status else T.TEXT_MUTED, anchor="center")
         acct = self.app.session.account
         if acct:
-            r = pygame.Rect(0, 0, 34, 34)
-            r.midright = (self.logout_btn.rect.x - 10 - T.text_width(acct.username, 14, True) - 10, TOP_H // 2)
-            pygame.draw.circle(surf, T.ACCENT_DARK, r.center, 17)
+            r = pygame.Rect(0, 0, px(34), px(34))
+            r.midright = (self.logout_btn.rect.x - px(20) - T.text_width(acct.username, 14, True), top // 2)
+            T.circle(surf, T.ACCENT_DARK, r.center, px(17))
             T.draw_text(surf, acct.username[:1].upper(), r.center, 15, T.TEXT, bold=True, anchor="center")
-            T.draw_text(surf, acct.username, (r.right + 10, TOP_H // 2), 14, T.TEXT, bold=True, anchor="midleft")
+            T.draw_text(surf, acct.username, (r.right + px(10), top // 2), 14, T.TEXT, bold=True, anchor="midleft")
         self.logout_btn.draw(surf)
 
     def _draw_sidebar(self, surf):
+        line = max(1, px(1))
         pygame.draw.rect(surf, T.PANEL, self.sidebar)
-        pygame.draw.line(surf, T.BORDER, (LEFT_W - 1, self.sidebar.y), (LEFT_W - 1, self.sidebar.bottom))
+        pygame.draw.rect(surf, T.BORDER, (self.LEFT_W - line, self.sidebar.y, line, self.sidebar.h))
         self.upload_btn.draw(surf)
         for key, b in self.tab_buttons.items():
             b.draw(surf)
             count = {"library": len(self.library_list.items), "queue": len(self.app.session.queue),
                      "saved": len(self.saved_list.items)}[key]
             if count:
-                T.draw_text(surf, str(count), (b.rect.right - 8, b.rect.y + 4), 10, T.TEXT_MUTED, anchor="topright")
+                tx = b.rect.centerx + T.text_width(b.text, b.size, True) // 2 + px(4)
+                T.draw_text(surf, str(count), (tx, b.rect.centery - px(3)), 10,
+                            T.TEXT_DIM if b.active else T.TEXT_MUTED, anchor="midleft")
         self.lists[self.tab].draw(surf)
         self.demo_btn.draw(surf)
 
     def _draw_panel(self, surf):
         pygame.draw.rect(surf, T.PANEL, self.panel)
-        pygame.draw.line(surf, T.BORDER, (self.panel.x, self.panel.y), (self.panel.x, self.panel.bottom))
-        px = self.panel.x + 20
+        pygame.draw.rect(surf, T.BORDER, (self.panel.x, self.panel.y, max(1, px(1)), self.panel.h))
+        x = self.panel.x + px(20)
+        right = self.panel.right - px(20)
         clip = surf.get_clip()
         surf.set_clip(self.settings_clip)
-        T.draw_text(surf, "VISUALIZER STYLE", (px, self.style_group.rect.y - 24), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "PRIMARY COLOUR", (px, self.color_swatches.rect.y - 22), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "ACCENT COLOUR", (px, self.color2_swatches.rect.y - 22), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "BACKGROUND", (px, self.bg_group.rect.y - 22), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, "SENSITIVITY", (px, self.sens_slider.rect.y - 22), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, f"{self.settings.sensitivity:.2f}x", (self.panel.right - 20, self.sens_slider.rect.y - 22),
+        labels = [("VISUALIZER STYLE", self.style_group), ("PRIMARY COLOUR", self.color_swatches),
+                  ("ACCENT COLOUR", self.color2_swatches), ("BACKGROUND", self.bg_group),
+                  ("SENSITIVITY", self.sens_slider), ("SMOOTHING", self.smooth_slider)]
+        for text, widget in labels:
+            T.draw_text(surf, text, (x, widget.rect.y - px(23)), 12, T.TEXT_DIM, bold=True)
+        T.draw_text(surf, f"{self.settings.sensitivity:.2f}x", (right, self.sens_slider.rect.y - px(23)),
                     12, T.TEXT_MUTED, anchor="topright")
-        T.draw_text(surf, "SMOOTHING", (px, self.smooth_slider.rect.y - 22), 12, T.TEXT_DIM, bold=True)
-        T.draw_text(surf, f"{int(self.settings.smoothing * 100)}%", (self.panel.right - 20, self.smooth_slider.rect.y - 22),
+        T.draw_text(surf, f"{int(self.settings.smoothing * 100)}%", (right, self.smooth_slider.rect.y - px(23)),
                     12, T.TEXT_MUTED, anchor="topright")
         for w in self.settings_widgets[:-2]:
             w.draw(surf)
@@ -619,25 +627,27 @@ class StudioScreen(Screen):
 
     def _draw_transport(self, surf):
         pygame.draw.rect(surf, T.PANEL, self.transport)
-        pygame.draw.line(surf, T.BORDER, (0, self.transport.y), (self.transport.w, self.transport.y))
+        pygame.draw.rect(surf, T.BORDER, (0, self.transport.y, self.transport.w, max(1, px(1))))
         self.prev_btn.draw(surf)
         self.next_btn.draw(surf)
-        pygame.draw.circle(surf, T.ACCENT_HOVER if self.play_btn.hovered else T.ACCENT,
-                           self.play_btn.rect.center, 26)
-        T.draw_icon(surf, self.play_btn.icon, self.play_btn.rect.inflate(-28, -28), (255, 255, 255))
+        T.circle(surf, T.ACCENT_HOVER if self.play_btn.hovered else T.ACCENT, self.play_btn.rect.center, px(26))
+        icon = self.play_btn.rect.inflate(-px(30), -px(30))
+        if self.play_btn.icon == "play":
+            icon.x += px(2)  # optical centring of the triangle
+        T.draw_icon(surf, self.play_btn.icon, icon, (255, 255, 255))
 
         player = self.app.player
         audio = self.app.session.get_current_audio()
         title = audio.display_name if audio else "No track loaded"
-        T.draw_text(surf, title, (self.seek.rect.x, self.transport.y + 14), 14, T.TEXT, bold=True,
-                    max_width=self.seek.rect.w - 120)
+        T.draw_text(surf, title, (self.seek.rect.x, self.transport.y + px(14)), 14, T.TEXT, bold=True,
+                    max_width=self.seek.rect.w - px(120))
         T.draw_text(surf, f"{T.format_time(player.position)} / {T.format_time(player.duration)}",
-                    (self.seek.rect.right, self.transport.y + 14), 13, T.TEXT_DIM, anchor="topright")
+                    (self.seek.rect.right, self.transport.y + px(15)), 13, T.TEXT_DIM, anchor="topright")
         self.seek.draw(surf)
-        vol_icon = pygame.Rect(self.volume.rect.x - 34, self.volume.rect.centery - 10, 20, 20)
+        vol_icon = pygame.Rect(self.volume.rect.x - px(34), self.volume.rect.centery - px(10), px(20), px(20))
         T.draw_icon(surf, "volume", vol_icon, T.TEXT_DIM)
         self.volume.draw(surf)
         self.focus_btn.draw(surf)
         if not player.audio_ok and player.loaded:
-            T.draw_text(surf, "No audio device - visuals only", (self.volume.rect.x, self.transport.y + 12),
+            T.draw_text(surf, "No audio device - visuals only", (self.volume.rect.x, self.transport.y + px(12)),
                         11, T.WARNING)

@@ -15,6 +15,7 @@ BACKGROUND_COLORS = {
 }
 
 _cache: dict = {}
+_flash: dict = {}
 
 
 def _gradient(size: tuple[int, int], top, bottom, radial: bool) -> pygame.Surface:
@@ -47,6 +48,11 @@ def get_background(name: str, size: tuple[int, int]) -> pygame.Surface:
 def draw_background(target: pygame.Surface, name: str, color, beat: float) -> None:
     target.blit(get_background(name, target.get_size()), (0, 0))
     if beat > 0.02 and name != "black":
-        flash = pygame.Surface(target.get_size())
+        # A plain fill + additive blit is far faster than fill(special_flags=ADD).
+        size = target.get_size()
+        flash = _flash.get(size)
+        if flash is None:
+            _flash.clear()
+            flash = _flash[size] = pygame.Surface(size)
         flash.fill(tuple(int(c * 0.22 * beat) for c in color))
         target.blit(flash, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
