@@ -118,3 +118,14 @@ def test_player_clock_without_audio_device(monkeypatch):
     assert player.position == pytest.approx(3.0)
     player.stop()
     assert player.position == 0 and not player.is_playing
+
+
+def test_data_dir_is_a_real_on_disk_path(tmp_path, monkeypatch):
+    # Store-installed Python redirects AppData; data_dir must return the real path
+    # so ffmpeg (a separate program) can open files saved there.
+    from audiovista import config
+
+    monkeypatch.setenv("AUDIOVISTA_DATA_DIR", str(tmp_path / "av"))
+    path = config.data_dir()
+    assert path.is_dir()
+    assert str(path) == os.path.realpath(path)

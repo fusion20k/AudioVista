@@ -34,11 +34,13 @@ class VisualizerEngine:
         self.title = title
         self.settings = settings
         self.renderer = create_renderer(settings.wave_type)
+        self.renderer.analyzer = analyzer
         self._layer: pygame.Surface | None = None
 
     def set_settings(self, settings: VisualSettings) -> None:
         if settings.wave_type != self.settings.wave_type:
             self.renderer = create_renderer(settings.wave_type)
+            self.renderer.analyzer = self.analyzer
         self.settings = settings
 
     def reset(self) -> None:

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..config import SAMPLE_RATE
+from ..config import SAMPLE_RATE, real_path
 from ..errors import AudioDecodeError
 
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
@@ -94,7 +94,7 @@ def _read_wav(path: Path) -> tuple[np.ndarray, int]:
 
 def _decode_with_ffmpeg(path: Path, sample_rate: int) -> DecodedAudio:
     exe = ffmpeg_executable()
-    cmd = [exe, "-hide_banner", "-nostdin", "-i", str(path), "-vn",
+    cmd = [exe, "-hide_banner", "-nostdin", "-i", real_path(path), "-vn",
            "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "2", "-ar", str(sample_rate), "-"]
     try:
         proc = subprocess.run(cmd, capture_output=True, creationflags=_NO_WINDOW, timeout=600)

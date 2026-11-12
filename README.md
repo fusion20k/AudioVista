@@ -19,9 +19,9 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | --- | --- |
 | Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
 | Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
-| Readable soundwave: "silk wave" ribbons per frequency range around a stabilised oscilloscope trace, plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.overview` |
+| Readable soundwave: an audiogram of the real waveform scrolling past a playhead, plus a waveform overview on the seek bar | `WaveformRenderer`, `AudioAnalyzer.envelope_buckets` |
 | Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
-| Four styles: Equalizer Bars, Waveform, Radial, Particles | `visuals/renderers.py` |
+| Four styles: Equalizer Bars, Waveform (audiogram), Radial (glowing orb with spectrum rings and beat shockwaves), Particles | `visuals/renderers.py` |
 | Settings: primary/accent colour, background, sensitivity, smoothing, glow, title | `VisualSettings`, studio right panel |
 | Play / pause, seek, volume, previous / next | `AudioPlayer`, studio transport bar |
 | Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |

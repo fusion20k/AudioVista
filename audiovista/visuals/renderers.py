@@ -164,136 +164,203 @@ class BarsRenderer(BaseRenderer):
 
 
 class WaveformRenderer(BaseRenderer):
-    """Silk waves: layered ribbons that flow with the music.
+    """Audiogram: the track's real waveform scrolling past a glowing playhead.
 
-    Each ribbon follows one slice of the spectrum (bass at the front, treble at
-    the back) so you can see which frequencies are active, and the real sound
-    wave - triggered like an oscilloscope so it stands still instead of
-    jittering - runs through the middle as a bright line.
+    Bars left of the playhead have already played (full colour); bars on the
+    right are what's coming up (dimmed). Each bar is the peak level of a fixed
+    slice of time, so the shape is the actual, readable sound wave of the song.
     """
 
     style = "waveform"
-    LAYERS = 5
+    BAR_SECONDS = 0.085
+
+    def __init__(self):
+        super().__init__()
+        self.analyzer = None
+        self._pulse = 0.0
+
+    def reset(self):
+        super().reset()
+        self._pulse = 0.0
+
+    def draw(self, layer, frame, settings, dt):
+        if self.analyzer is None:
+            return
+        w, h = layer.get_size()
+        c1, c2 = settings.primary_rgb, settings.secondary_rgb
+        white = (255, 255, 255)
+        mid = h * 0.5
+        cx = w * 0.5
+        spacing = max(4.0, w / 118.0)
+        bar_w = max(2, int(spacing * 0.56))
+        max_h = h * 0.27
+        d = self.BAR_SECONDS
+        t = frame.time
+
+        half = int(cx / spacing) + 2
+        first = int(math.floor(t / d)) - half
+        count = 2 * half + 2
+        env = self.analyzer.envelope_buckets(first, count, d)
+        env = np.clip(env, 0, 1) ** (0.8 / settings.sensitivity)
+
+        target = min(1.0, frame.volume * 0.6 + frame.beat * 0.6)
+        keep = 0.5 + 0.45 * settings.smoothing
+        self._pulse = self._pulse * keep + target * (1 - keep) if dt > 0.001 else self._pulse
+
+        for i in range(count):
+            j = first + i
+            x = cx + (j * d - t) / d * spacing
+            if x < -bar_w or x > w + bar_w:
+                continue
+            dist = (x - cx) / cx                       # -1 (left edge) .. 1 (right edge)
+            fade = max(0.0, 1.0 - abs(dist) ** 2.2)    # fade out towards the edges
+            near = math.exp(-(dist * 9) ** 2)          # bars right at the playhead
+            v = env[i] * (1.0 + 0.35 * self._pulse * near)
+            bh = max(bar_w, v * max_h * 2)
+            played = (j + 1) * d <= t
+            if played:
+                col = lerp_color(c2, c1, 1.0 - min(1.0, -dist))
+                col = lerp_color(col, white, 0.25 * near)
+                alpha = int(255 * (0.35 + 0.65 * fade))
+            else:
+                col = lerp_color(c1, (90, 96, 130), 0.55)
+                alpha = int(200 * fade)
+            if alpha <= 4:
+                continue
+            rect = pygame.Rect(int(x - bar_w / 2), int(mid - bh / 2), bar_w, int(bh))
+            pygame.draw.rect(layer, (*col, alpha), rect, border_radius=bar_w // 2)
+
+        # Playhead
+        glow_h = h * (0.40 + 0.06 * frame.beat)
+        line_w = max(2.0, w / 700)
+        aa_line(layer, (*lerp_color(c1, white, 0.6), 230), (cx, mid - glow_h), (cx, mid + glow_h), line_w)
+        knob = max(4.0, h / 90) * (1.0 + 0.5 * frame.beat)
+        aa_circle(layer, (*c1, 90), (cx, mid), knob * 2.2)
+        aa_circle(layer, white, (cx, mid), knob)
+
+
+def _circular_smooth(values: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian smoothing that wraps around (for closed shapes)."""
+    k = max(1, int(sigma * 3))
+    x = np.arange(-k, k + 1)
+    kernel = np.exp(-(x / max(sigma, 1e-6)) ** 2 / 2)
+    kernel /= kernel.sum()
+    padded = np.concatenate([values[-k:], values, values[:k]])
+    return np.convolve(padded, kernel, mode="valid")
+
+
+_glow_masks: dict = {}
+
+
+def _glow_mask(radius: int) -> pygame.Surface:
+    """White radial glow (alpha 255 in the centre fading to 0 at *radius*), cached
+    in 4 px size buckets."""
+    radius = max(4, radius - radius % 4)
+    surf = _glow_masks.get(radius)
+    if surf is None:
+        size = radius * 2
+        yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
+        d = np.sqrt((xx - radius + 0.5) ** 2 + (yy - radius + 0.5) ** 2) / radius
+        alpha = (np.clip(1.0 - d, 0, 1) ** 1.6 * 255).astype(np.uint8)
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        surf.fill((255, 255, 255, 0))
+        pygame.surfarray.pixels_alpha(surf)[:] = alpha.T
+        if len(_glow_masks) > 96:
+            _glow_masks.clear()
+        _glow_masks[radius] = surf
+    return surf
+
+
+class CircularRenderer(BaseRenderer):
+    """Orb: a pulsing core inside two smooth spectrum shapes that rotate in
+    opposite directions, a halo of dancing dots and shockwave rings on beats."""
+
+    style = "circular"
     POINTS = 240
 
     def __init__(self):
         super().__init__()
-        self.reset()
-
-    def reset(self):
-        super().reset()
-        self._phase = np.linspace(0, 2 * math.pi, self.LAYERS, endpoint=False)
-        self._drift = np.arange(self.LAYERS, dtype=float) * 1.7
-        self._amps = np.zeros(self.LAYERS)
-        self._trace: np.ndarray | None = None
-
-    def _stable_trace(self, raw: np.ndarray, n: int) -> np.ndarray:
-        """Oscilloscope trigger: start each frame on a rising zero crossing."""
-        smooth = np.convolve(raw, np.hanning(19) / np.hanning(19).sum(), mode="same")
-        half = len(smooth) // 2
-        rising = np.where((smooth[: half - 1] <= 0) & (smooth[1:half] > 0))[0]
-        start = int(rising[0]) if rising.size else 0
-        seg = smooth[start: start + half]
-        if len(seg) < 4:
-            seg = smooth[:half]
-        return resample(seg, n)
-
-    def draw(self, layer, frame, settings, dt):
-        w, h = layer.get_size()
-        levels = self.levels(frame, settings, dt)
-        n = self.POINTS
-        mid = h * 0.5
-        u = np.linspace(-1.0, 1.0, n)
-        xs = (u + 1.0) * 0.5 * w
-        edge = (1.0 - u ** 2) ** 2.2          # ribbons pinch to nothing at the edges
-        c1, c2 = settings.primary_rgb, settings.secondary_rgb
-
-        groups = np.array_split(levels, self.LAYERS)
-        target = np.array([g.mean() for g in groups]) ** 0.7
-        self._amps += (target - self._amps) * min(1.0, dt * 14)
-        energy = 1.0 + 2.2 * frame.volume
-
-        # Back (treble) to front (bass)
-        for k in reversed(range(self.LAYERS)):
-            direction = 1 if k % 2 == 0 else -1
-            self._phase[k] += dt * (1.1 + 0.5 * k) * energy * direction
-            self._drift[k] += dt * (0.25 + 0.08 * k)
-            focus = 0.5 * math.sin(self._drift[k])          # where along the width this ribbon swells
-            bump = np.exp(-((u - focus) / (0.55 - 0.05 * k)) ** 2)
-            cycles = 1.3 + 0.7 * k
-            amp = h * 0.42 * self._amps[k] * (1.0 + 0.3 * frame.beat) / (1 + 0.15 * k)
-            y = np.abs(amp * edge * bump * np.sin(math.pi * cycles * u + self._phase[k]))
-            if amp < 1.0:
-                continue
-            col = lerp_color(c1, c2, k / (self.LAYERS - 1))
-            top, bottom = mid - y, mid + y
-            poly = list(zip(xs.tolist(), top.tolist())) + list(zip(xs[::-1].tolist(), bottom[::-1].tolist()))
-            gfx.filled_polygon(layer, poly, (*col, 64))
-            core = 0.45
-            inner = list(zip(xs.tolist(), (mid - y * core).tolist())) +                 list(zip(xs[::-1].tolist(), (mid + y[::-1] * core).tolist()))
-            gfx.filled_polygon(layer, inner, (*lerp_color(col, (255, 255, 255), 0.35), 70))
-            edge_col = (*lerp_color(col, (255, 255, 255), 0.25), 200)
-            pygame.draw.aalines(layer, edge_col, False, poly[:n])
-            pygame.draw.aalines(layer, edge_col, False, poly[n:])
-
-        # Faint centre line, then the real (stabilised) waveform on top
-        aa_line(layer, (*c1, 45), (0, mid), (w, mid), max(1.0, h / 700))
-        trace = self._stable_trace(frame.waveform, n)
-        peak = max(0.04, float(np.abs(trace).max()))
-        trace = trace / peak * min(1.0, 0.15 + 1.1 * frame.volume)
-        if self._trace is None or len(self._trace) != n:
-            self._trace = trace
-        self._trace = self._trace * 0.35 + trace * 0.65
-        ys = mid - self._trace * h * 0.12 * (1.0 - u ** 2) ** 1.5
-        width = max(2.0, h / 200) * (1.0 + 0.6 * frame.beat)
-        white = (255, 255, 255)
-        aa_gradient_polyline(layer, lerp_color(c1, white, 0.5), lerp_color(c2, white, 0.5), xs, ys, width)
-
-
-class CircularRenderer(BaseRenderer):
-    """Bars radiating from a pulsing circle that breathes with the beat."""
-
-    style = "circular"
-
-    def __init__(self):
-        super().__init__()
+        self.analyzer = None
         self._angle = 0.0
 
     def reset(self):
         super().reset()
         self._angle = 0.0
 
+    def _shape(self, cx, cy, radius, amount, values, rotation):
+        n = len(values)
+        theta = rotation + np.linspace(0, 2 * math.pi, n, endpoint=False) - math.pi / 2
+        r = radius * (1.0 + amount * values)
+        return list(zip((cx + np.cos(theta) * r).tolist(), (cy + np.sin(theta) * r).tolist()))
+
     def draw(self, layer, frame, settings, dt):
         w, h = layer.get_size()
-        levels = self.levels(frame, settings, dt)
-        half = resample(levels, 64)
-        ring = np.concatenate([half, half[::-1]])  # mirror for symmetry
-        n = len(ring)
         cx, cy = w / 2, h / 2
         size = min(w, h)
-        radius = size * 0.17 * (1 + 0.10 * frame.beat + 0.05 * frame.bass)
-        length = size * 0.24
-        self._angle += dt * (0.15 + 0.6 * frame.volume)
         c1, c2 = settings.primary_rgb, settings.secondary_rgb
-        width = max(2.0, size * 2 * math.pi * 0.17 / n * 0.5)
-        gap = size * 0.012
+        white = (255, 255, 255)
+        levels = self.levels(frame, settings, dt)
+        self._angle += dt * (0.12 + 0.5 * frame.volume)
+        R = size * 0.20 * (1.0 + 0.06 * frame.beat)
 
-        for i, v in enumerate(ring):
-            a = self._angle + 2 * math.pi * i / n - math.pi / 2
-            ca, sa = math.cos(a), math.sin(a)
-            r0 = radius + gap
-            r1 = radius + gap * 1.5 + v * length
-            col = lerp_color(c1, c2, abs(i / n * 2 - 1))
-            col = scale_color(col, 0.6 + 0.5 * v)
-            aa_line(layer, col, (cx + ca * r0, cy + sa * r0), (cx + ca * r1, cy + sa * r1), width)
+        # Front shape: spectrum mirrored four ways (bass on the diagonals, treble on
+        # the axes) for a symmetric flower. Back shape: mirrored once and rotating.
+        quarter = resample(levels, self.POINTS // 4)
+        flower = _circular_smooth(np.concatenate([quarter, quarter[::-1]] * 2), 2.0)
+        half = resample(levels, self.POINTS // 2)
+        ring = np.concatenate([half, half[::-1]])
+        back_vals = _circular_smooth(np.concatenate([half[::-1], half]), 3.0)
 
-        inner = radius
-        aa_circle(layer, (*scale_color(c1, 0.25), 210), (cx, cy), inner)
-        aa_circle(layer, lerp_color(c1, (255, 255, 255), 0.3 + 0.5 * frame.beat), (cx, cy), inner,
-                  width=max(2, int(size / 180)))
-        rip = inner * (0.35 + 0.5 * frame.bass)
-        if rip > 2:
-            aa_circle(layer, (*c2, int(60 + 120 * frame.beat)), (cx, cy), rip, width=max(1, int(size / 300)))
+        # Beat shockwaves (deterministic: derived from the beat times)
+        if self.analyzer is not None:
+            for age in self.analyzer.recent_beats(frame.time, 1.1):
+                k = age / 1.1
+                rr = R * (1.05 + 1.5 * k)
+                alpha = int(170 * (1 - k) ** 2)
+                if alpha > 4:
+                    aa_circle(layer, (*lerp_color(c1, c2, k), alpha), (cx, cy), rr,
+                              width=max(1, int(size / 260 * (1 - k) + 1)))
+
+        # Outer halo of dots
+        n_dots = 96
+        dot_vals = resample(ring, n_dots)
+        for i, v in enumerate(dot_vals):
+            a = -self._angle * 0.6 + 2 * math.pi * i / n_dots - math.pi / 2
+            rr = R * (1.62 + 0.38 * v)
+            col = lerp_color(c2, c1, v)
+            aa_circle(layer, (*lerp_color(col, white, 0.2 * v), int(110 + 145 * v)),
+                      (cx + math.cos(a) * rr, cy + math.sin(a) * rr), max(1.5, size / 330 * (0.6 + 1.6 * v)))
+
+        # Layered wave rings: thin spectrum-shaped outlines, each slightly bigger,
+        # dimmer and rotated, which reads as one shimmering, breathing shape.
+        rings = 6
+        line_w = max(1.0, size / 520)
+        for k in reversed(range(rings)):
+            vals = flower if k % 2 == 0 else back_vals
+            rot = (math.pi / 4) + (self._angle * (0.5 + 0.25 * k)) * (1 if k % 2 == 0 else -1)
+            pts = self._shape(cx, cy, R * (1.0 + 0.07 * k), 0.55 - 0.05 * k, vals, rot)
+            col = lerp_color(c1, c2, k / (rings - 1))
+            alpha = int(235 * (1.0 - k / rings) ** 1.2)
+            if k == 0:
+                gfx.filled_polygon(layer, pts, (*col, 40))
+            # Thick lines via stacked 1px anti-aliased outlines (much faster than
+            # filling a ribbon polygon around the whole circle).
+            passes = max(1, int(round(line_w * (1.6 if k == 0 else 1.0))))
+            for j in range(passes):
+                grow = 1.0 + (j - (passes - 1) / 2) / max(1.0, R)
+                ring_pts = pts if j == (passes - 1) // 2 and passes % 2 else                     [(cx + (x - cx) * grow, cy + (y - cy) * grow) for x, y in pts]
+                pygame.draw.aalines(layer, (*col, alpha), True, ring_pts)
+
+        # Core: a glowing orb (cached radial gradient, re-tinted with the music)
+        core = R * (0.74 + 0.08 * frame.bass)
+        dark = lerp_color(c1, (6, 6, 16), 0.8)
+        hot = lerp_color(c1, white, 0.25 + 0.45 * frame.beat)
+        aa_circle(layer, dark, (cx, cy), core)
+        glow = _glow_mask(int(core)).copy()
+        glow.fill((*hot, int(255 * (0.55 + 0.45 * frame.volume))), special_flags=pygame.BLEND_RGBA_MULT)
+        layer.blit(glow, glow.get_rect(center=(int(cx), int(cy))))
+        aa_circle(layer, lerp_color(c1, white, 0.45 + 0.4 * frame.beat), (cx, cy), core,
+                  width=max(2, int(size / 220)))
 
 
 class ParticlesRenderer(BaseRenderer):

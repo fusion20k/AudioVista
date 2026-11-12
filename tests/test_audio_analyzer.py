@@ -92,3 +92,23 @@ def test_invalid_parameters_raise(kwargs):
 def test_rejects_wrong_shape():
     with pytest.raises(ValueError):
         AudioAnalyzer(np.zeros((2, 2, 2)))
+
+
+def test_envelope_buckets_follow_the_audio():
+    loud_then_quiet = np.concatenate([sine(300, 1.0, 0.8), sine(300, 1.0, 0.1)])
+    analyzer = AudioAnalyzer(loud_then_quiet)
+    env = analyzer.envelope_buckets(0, 20, 0.1)          # 20 buckets of 0.1 s = 2 s
+    assert env.shape == (20,)
+    assert env[:9].mean() > 4 * env[11:].mean()           # loud first half, quiet second
+    before_start = analyzer.envelope_buckets(-5, 3, 0.1)  # time before the track = silence
+    assert np.all(before_start == 0)
+    with pytest.raises(ValueError):
+        analyzer.envelope_buckets(0, 0, 0.1)
+
+
+def test_recent_beats_reports_time_since_each_beat(beat_wav):
+    analyzer = AudioAnalyzer(decode_audio(beat_wav).samples)
+    t = analyzer.beat_times[3] + 0.1
+    ages = analyzer.recent_beats(t, 1.0)
+    assert ages.size >= 1 and np.all((ages >= 0) & (ages <= 1.0))
+    assert ages.min() == pytest.approx(0.1, abs=1e-6)

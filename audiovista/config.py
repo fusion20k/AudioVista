@@ -47,7 +47,15 @@ def data_dir() -> Path:
     else:
         path = Path.home() / ".audiovista"
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    # The Microsoft Store build of Python silently redirects AppData writes into
+    # its private package folder. Python sees the files at the old path but other
+    # programs (ffmpeg) don't, so always work with the real on-disk location.
+    return Path(os.path.realpath(path))
+
+
+def real_path(path) -> str:
+    """Resolve *path* to where it really lives on disk (see :func:`data_dir`)."""
+    return os.path.realpath(str(path))
 
 
 def database_path() -> Path:

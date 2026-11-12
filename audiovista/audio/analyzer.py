@@ -97,6 +97,7 @@ class AudioAnalyzer:
             band_db[start:stop] = 20.0 * np.log10(band_mag + 1e-9)
 
         self.bands = self._normalise_bands(band_db)
+        self._build_peak_envelope()
 
         peak_rms = float(np.percentile(rms, 99)) if rms.size else 0.0
         self.volume = np.clip(rms / peak_rms, 0, 1) if peak_rms > 1e-6 else np.zeros_like(rms)
@@ -108,6 +109,43 @@ class AudioAnalyzer:
         bass_power = (10 ** (band_db[:, bass_idx] / 10.0)).mean(axis=1)
         self.bass = self.bands[:, bass_idx].mean(axis=1)
         self.beat_times = self._detect_beats(bass_power)
+
+    def _build_peak_envelope(self) -> None:
+        """Peak amplitude every 5 ms (normalised 0..1), used to draw the waveform."""
+        block = max(1, self.sample_rate // 200)
+        n = len(self.mono) // block
+        if n == 0:
+            self.peak_env = np.zeros(1, dtype=np.float32)
+        else:
+            peaks = np.abs(self.mono[: n * block]).reshape(n, block).max(axis=1)
+            ref = float(np.percentile(peaks, 99.5))
+            self.peak_env = (np.clip(peaks / ref, 0, 1) if ref > 1e-6 else np.zeros_like(peaks)).astype(np.float32)
+        self.peak_rate = self.sample_rate / float(block)
+
+    def envelope_buckets(self, first: int, count: int, bucket_seconds: float) -> np.ndarray:
+        """Peak level of fixed time buckets ``[j*d, (j+1)*d)`` for j = first .. first+count-1.
+
+        Buckets outside the track are 0. Using a fixed time grid means a bucket
+        always has the same height while it scrolls across the screen.
+        """
+        if count < 1 or bucket_seconds <= 0:
+            raise ValueError("count and bucket_seconds must be positive")
+        edges = (np.arange(first, first + count + 1) * bucket_seconds * self.peak_rate).astype(int)
+        edges = np.clip(edges, 0, len(self.peak_env))
+        out = np.zeros(count, dtype=np.float32)
+        for i in range(count):
+            lo, hi = edges[i], edges[i + 1]
+            if hi > lo:
+                out[i] = self.peak_env[lo:hi].max()
+        return out
+
+    def recent_beats(self, t: float, window: float) -> np.ndarray:
+        """Seconds since each beat that happened in the last *window* seconds."""
+        if not self.beat_times.size:
+            return np.zeros(0)
+        lo = np.searchsorted(self.beat_times, t - window, side="left")
+        hi = np.searchsorted(self.beat_times, t, side="right")
+        return t - self.beat_times[lo:hi]
 
     def _normalise_bands(self, band_db: np.ndarray) -> np.ndarray:
         if band_db.size == 0:

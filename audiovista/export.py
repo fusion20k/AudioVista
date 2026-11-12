@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 import pygame
 
 from .audio.decoder import ffmpeg_executable
+from .config import real_path
 from .errors import ExportCancelled, ExportError
 from .models import AudioFile
 
@@ -46,7 +47,7 @@ class ExportFile:
                "-i", "-"]
         if self.duration is not None:
             cmd += ["-t", f"{self.duration:.3f}"]
-        cmd += ["-i", str(self.audio_file.file_path),
+        cmd += ["-i", real_path(self.audio_file.file_path),
                 "-map", "0:v:0", "-map", "1:a:0",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
