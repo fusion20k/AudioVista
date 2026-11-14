@@ -22,9 +22,9 @@ Team: Daniel Kraemer · Neb Horton · Theodore Kosarek · Alec Kubs
 | --- | --- |
 | Create account / log in (hashed passwords, lockout after 5 failed attempts) | `AccountController`, `Account`, `Database` |
 | Upload audio (MP3, WAV, FLAC, 200 MB limit, drag & drop supported) | `UploadController`, `AudioFile` |
-| Readable soundwave: the Waveform style draws the live sound wave as a flowing ribbon with fading echoes, plus a waveform overview of the whole track on the seek bar | `WaveformRenderer`, `AudioAnalyzer.overview` |
+| Readable soundwave: a waveform overview of the whole track on the seek bar, with the played part highlighted | `SeekBar`, `AudioAnalyzer.overview` |
 | Visuals that react to volume, beat and frequency (FFT) | `AudioAnalyzer`, `visuals/renderers.py` |
-| Three modern, constantly moving styles: Spectrum (spring-loaded bars that bounce, a rippling floor, falling peak caps, sparks on the beat), Waveform (the live wave as a glowing ribbon with fading echoes and a reflection), Radial (a breathing ring of spectrum bars around a wobbling spectrum blob, orbiting dots, shockwaves, and optional particles streaming out of the centre) | `visuals/renderers.py` |
+| Two modern, constantly moving styles: Spectrum (spring-loaded bars that bounce, a rippling floor, falling peak caps, sparks on the beat) and Radial (a breathing ring of spectrum bars, shockwaves on the beat, and optional particles streaming out of the centre) | `visuals/renderers.py` |
 | Settings: primary/accent colour, sky background (Golden, Sunset, Dawn, Twilight, Night), sensitivity, smoothing, glow, title, haze (soft vignette and warm glow) | `VisualSettings`, studio right panel |
 | Play / pause, seek, volume, previous / next | `AudioPlayer`, studio transport bar |
 | Sound queue ("up next") with auto-advance | `PlaybackQueue`, studio *Queue* tab |
@@ -57,7 +57,7 @@ synthesises a short royalty-free loop.
 | --- | --- |
 | Space | Play / pause |
 | ← / → | Seek 5 seconds |
-| 1 – 3 | Switch visualizer style |
+| 1 – 2 | Switch visualizer style |
 | F / Esc | Full view on / off |
 | N | Next track in queue |
 | Ctrl+O / Ctrl+S / Ctrl+E | Upload / Save / Export |
@@ -108,7 +108,7 @@ audiovista/
     player.py        AudioPlayer – pygame.mixer playback with an accurate clock
     demo.py          synthesised demo track
   visuals/
-    renderers.py     Spectrum, Waveform, Radial (+ particles option)
+    renderers.py     Spectrum, Radial (+ particles option)
     backgrounds.py   sky gradients (dithered, no banding) + beat flash
     retro.py         "Haze": soft vignette and warm glow
     engine.py        VisualizerEngine – live preview and export frames, bloom

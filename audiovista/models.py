@@ -133,11 +133,12 @@ class AudioFile:
 
 # Style keys are stored in saved visualizations, so they stay stable even
 # though the styles have been redesigned (they map to the current designs).
-WAVE_TYPES = ("bars", "waveform", "circular")
-WAVE_TYPE_LABELS = {"bars": "Spectrum", "waveform": "Waveform", "circular": "Radial"}
+WAVE_TYPES = ("bars", "circular")
+WAVE_TYPE_LABELS = {"bars": "Spectrum", "circular": "Radial"}
 # Styles that were removed: saved visualizations that used them open as Radial
 # (the old "particles" style becomes Radial with the particles option on).
-LEGACY_WAVE_TYPES = {"meters": ("circular", False), "particles": ("circular", True)}
+LEGACY_WAVE_TYPES = {"meters": ("circular", False), "particles": ("circular", True),
+                     "waveform": ("bars", False)}
 # Backgrounds are skies at different times of day.
 BACKGROUNDS = ("golden", "sunset", "dawn", "twilight", "night")
 BACKGROUND_LABELS = {"golden": "Golden", "sunset": "Sunset", "dawn": "Dawn",

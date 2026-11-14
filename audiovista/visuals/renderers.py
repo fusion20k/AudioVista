@@ -3,12 +3,9 @@
 * bars      - Spectrum: mirrored bars on springs (they overshoot and bounce),
               riding a floor that ripples with the music; peak caps fall with
               gravity and sparks fly off the bars on the beat.
-* waveform  - Waveform: the live sound wave as a smooth glowing ribbon that
-              changes every frame, trailed by fading echoes of the last few
-              frames and a mirrored reflection.
-* circular  - Radial: a breathing ring of spring-loaded spectrum bars around a
-              wobbling spectrum "blob", orbiting dots and shockwaves on the
-              beat; optionally particles stream out of the centre.
+* circular  - Radial: a breathing ring of spring-loaded spectrum bars with
+              shockwaves on the beat; optionally particles stream out of
+              the centre.
 
 ``draw_backdrop`` paints translucent parts straight onto the frame (they blend
 correctly there); ``draw`` paints the bright parts onto a layer that the
@@ -19,7 +16,6 @@ exported videos match the live preview.
 from __future__ import annotations
 
 import math
-from collections import deque
 
 import numpy as np
 import pygame
@@ -264,77 +260,6 @@ class SpectrumRenderer(BaseRenderer):
             aa_circle(layer, lerp_color(c2, WHITE, life), (x, y), max(1.5, u * 0.004 * life))
 
 
-# --------------------------------------------------------------- Waveform
-
-class WaveformRenderer(BaseRenderer):
-    style = "waveform"
-    POINTS = 220
-    ECHOES = 6
-
-    def __init__(self):
-        super().__init__()
-        self.reset()
-
-    def reset(self):
-        super().reset()
-        self.history: deque = deque(maxlen=self.ECHOES)
-        self.gain = 3.0
-        self.t = 0.0
-        self._frame = None
-        self.curve = np.zeros(self.POINTS)
-
-    def _update(self, frame, dt):
-        if frame is self._frame:
-            return
-        self._frame = frame
-        wave = np.asarray(frame.waveform, dtype=np.float64)
-        # smooth out the hiss so the line flows, then shrink to POINTS samples
-        wave = np.convolve(wave, np.hanning(17) / np.hanning(17).sum(), mode="same")
-        curve = resample(wave, self.POINTS)
-        # automatic gain: quiet passages still fill the screen, loud ones don't clip
-        peak = max(0.02, float(np.abs(curve).max()))
-        if dt > 0.0015:
-            self.gain += (min(8.0, 0.9 / peak) - self.gain) * (1 - 0.2 ** dt)
-            self.t += dt
-            self.history.appendleft(self.curve.copy())
-        # taper to the centre line at both ends
-        self.curve = np.clip(curve * self.gain, -1.2, 1.2) * np.sin(np.linspace(0, math.pi, self.POINTS)) ** 0.6
-
-    def _xs(self, w):
-        return np.linspace(w * 0.04, w * 0.96, self.POINTS)
-
-    def draw_backdrop(self, target, frame, s, dt):
-        w, h = target.get_size()
-        self._update(frame, dt)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        cy, amp = h * 0.48, h * 0.26 * (1 + 0.12 * frame.beat)
-        xs = self._xs(w)
-        # echoes of the last few frames drift outwards and fade
-        for k, old in enumerate(self.history):
-            f = (k + 1) / (self.ECHOES + 1)
-            ys = cy - old * amp * (1 + 0.25 * f)
-            ribbon(target, (*lerp_color(c1, c2, f), int(140 * (1 - f))), xs, ys, max(2.0, h * 0.006 * (1 - f)))
-        # mirrored reflection
-        ys = cy + self.curve * amp * 0.55
-        gfx.filled_polygon(target, list(zip(xs.tolist(), ys.tolist())) + [(xs[-1], cy), (xs[0], cy)],
-                           (*c2, 40))
-
-    def draw(self, layer, frame, s, dt):
-        w, h = layer.get_size()
-        u = min(w, h)
-        self._update(frame, dt)
-        c1, c2 = s.primary_rgb, s.secondary_rgb
-        cy, amp = h * 0.48, h * 0.26 * (1 + 0.12 * frame.beat)
-        xs = self._xs(w)
-        ys = cy - self.curve * amp
-        width = max(2.5, u * (0.007 + 0.006 * frame.volume))
-        ribbon(layer, lerp_color(c1, c2, 0.5 + 0.5 * math.sin(self.t * 0.7)), xs, ys, width * 2.2)
-        ribbon(layer, lerp_color(c1, WHITE, 0.35 + 0.3 * frame.beat), xs, ys, width)
-        # a bright dot rides the wave from left to right with the beat
-        j = int((self.t * 0.35 % 1.0) * (self.POINTS - 1))
-        aa_circle(layer, WHITE, (xs[j], ys[j]), width * (1.2 + frame.beat))
-
-
 # ------------------------------------------------------------------ Radial
 
 class Emitter:
@@ -397,7 +322,6 @@ class RadialRenderer(BaseRenderer):
         super().reset()
         self.springs = SpringBank(280.0, 10.0)
         self.breath = SpringBank(160.0, 8.0)
-        self.orbit = [0.0, 2.1, 4.2]
         self.t = 0.0
         self.emitter = Emitter()
         self._frame = None
@@ -415,8 +339,6 @@ class RadialRenderer(BaseRenderer):
         self.R = u * 0.15 * (1 + 0.22 * breath)
         if dt > 0.0015:
             self.t += dt * (0.6 + 1.5 * frame.volume)
-            for i, band in enumerate((bass, mid, treble)):
-                self.orbit[i] += dt * (0.6 + 0.5 * i) * (0.4 + 3.0 * band) * (1 if i % 2 == 0 else -1)
         if s.particles:
             self.emitter.update(frame, u, bass, dt)
 
@@ -436,17 +358,6 @@ class RadialRenderer(BaseRenderer):
                     for d in (0, 3):
                         gfx.aacircle(target, int(cx), int(cy), int(self.R * 1.1 + age * u * 0.35 + d),
                                      (*lerp_color(c1, WHITE, 0.4), a))
-        # the wobbling spectrum blob inside the ring
-        pts = self._blob(cx, cy, 0.78, 0.35, 0)
-        gfx.filled_polygon(target, pts, (*lerp_color(c1, c2, 0.5), 70))
-
-    def _blob(self, cx, cy, base, depth, phase):
-        n = self.BARS
-        vals = np.concatenate([self.bars, self.bars[::-1]])
-        a = -math.pi / 2 + np.linspace(0, TAU, 2 * n, endpoint=False) + phase
-        wob = 1 + 0.05 * np.sin(a * 5 + self.t * 2.0)
-        r = self.R * (base + depth * vals) * wob
-        return list(zip((cx + np.cos(a) * r).tolist(), (cy + np.sin(a) * r).tolist()))
 
     def draw(self, layer, frame, s, dt):
         w, h = layer.get_size()
@@ -469,15 +380,10 @@ class RadialRenderer(BaseRenderer):
                     aa_circle(layer, lerp_color(col, WHITE, 0.6),
                               (cx + ca * (r0 + L + width), cy + sa * (r0 + L + width)), width * 0.7)
         gfx.aacircle(layer, int(cx), int(cy), int(R), (*lerp_color(c1, WHITE, 0.3), 255))
-        pygame.draw.aalines(layer, lerp_color(c2, WHITE, 0.3), True, self._blob(cx, cy, 0.78, 0.35, 0))
-        for i, ang in enumerate(self.orbit):
-            rr = R * (0.45 + 0.12 * i)
-            aa_circle(layer, (c1, lerp_color(c1, c2, 0.5), c2)[i],
-                      (cx + math.cos(ang) * rr, cy + math.sin(ang) * rr), u * 0.008)
         aa_circle(layer, lerp_color(c1, WHITE, 0.6), (cx, cy), R * (0.12 + 0.12 * frame.beat))
 
 
-RENDERERS = {cls.style: cls for cls in (SpectrumRenderer, WaveformRenderer, RadialRenderer)}
+RENDERERS = {cls.style: cls for cls in (SpectrumRenderer, RadialRenderer)}
 
 
 def create_renderer(style: str) -> BaseRenderer:

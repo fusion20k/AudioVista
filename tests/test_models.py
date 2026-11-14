@@ -26,8 +26,8 @@ class TestVisualSettings:
         assert again == s
 
     def test_from_dict_ignores_unknown_keys_and_fills_defaults(self):
-        s = VisualSettings.from_dict({"wave_type": "waveform", "something_else": 1})
-        assert s.wave_type == "waveform" and s.background == "sunset"
+        s = VisualSettings.from_dict({"wave_type": "circular", "something_else": 1})
+        assert s.wave_type == "circular" and s.background == "sunset"
 
     @pytest.mark.parametrize("bad", [
         {"color": "red"}, {"color": "#12345"}, {"secondary_color": "#GGGGGG"},
@@ -147,10 +147,12 @@ def test_settings_saved_by_earlier_versions_still_load(old_background, sky):
     assert s.atmosphere is False          # the old "retro" switch carries over
 
 
-@pytest.mark.parametrize("old_style, particles", [("meters", False), ("particles", True)])
-def test_removed_styles_open_as_radial(old_style, particles):
+@pytest.mark.parametrize("old_style, style, particles", [("meters", "circular", False),
+                                                          ("particles", "circular", True),
+                                                          ("waveform", "bars", False)])
+def test_removed_styles_still_open(old_style, style, particles):
     s = VisualSettings.from_dict({"wave_type": old_style})
-    assert s.wave_type == "circular" and s.particles is particles
+    assert s.wave_type == style and s.particles is particles
 
 
 def test_radial_particles_option_draws_extra_detail(analyzer):

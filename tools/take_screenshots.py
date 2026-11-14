@@ -96,8 +96,7 @@ def main():
     app.player.seek(14.0)
     pump(app, 1.0)
     shot(app, "05_studio_bars")
-    for i, (style, bg, c1, c2, extra) in enumerate([("waveform", "twilight", "#ffb35c", "#7fc8ff", {}),
-                                                     ("circular", "night", "#ffb35c", "#ff7eb6", {}),
+    for i, (style, bg, c1, c2, extra) in enumerate([("circular", "night", "#ffb35c", "#ff7eb6", {}),
                                                      ("circular", "sunset", "#ff8a7a", "#ffb35c",
                                                       {"particles": True})]):
         studio.change_setting(wave_type=style, background=bg, color=c1, secondary_color=c2, **extra)
